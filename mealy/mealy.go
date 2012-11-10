@@ -1,5 +1,5 @@
 // vim: noet sw=4 sts=4 ts=4
-package main
+package mealy
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 
 // Transitions are 32-bit integers, and we split them up this way:
 // 8 bits: trigger value (a byte) - comes first so that these sort on triggers.
-// 23 bits: next state ID (We can handle a little over 8 million states).
+// 23 bits: next state ID (We can thus handle a little over 8 million states).
 // 1 bit: terminal
 type Transition uint32
 
@@ -232,27 +232,36 @@ func (p *pathNode) Advance() {
 	p.cur++
 }
 
-type Constraint struct {
-	minLen    int
-	maxLen    int
-	canBranch func(int, byte) bool // Given an index and a byte, say yes or no.
-}
-func (c Constraint) BigEnough(size int) bool {
-	return c.minLen == 0 || size >= c.minLen
-}
-func (c Constraint) SmallEnough(size int) bool {
-	return c.maxLen == 0 || size <= c.maxLen
+// Implement this to specify constraints for the Mealy machine output.
+//
+// To specify a minimum and/or maximum length, implement IsLargeEnough and/or
+// IsSmallEnough, respectively. They work the way you would expect: only values
+// that are both small enough and large enough will be emitted.
+//
+// They are separate functions because they are used in different places for
+// different kinds of branch cutting, and this cannot be done properly if the
+// two bounds are not specified separately.
+//
+// If there are only some values that are allowed at certain positions, then
+// IsValueAllowed should return true for all allowed values and false for all
+// others. If all values are allowed, this must return true all the time.
+type Constraints interface {
+	IsSmallEnough(size int) bool
+	IsLargeEnough(size int) bool
+	IsValueAllowed(pos int, val byte) bool
 }
 
 // Return a channel that produces all recognized sequences for this machine.
-// Constraints are specified by passing in a true/false function that accepts
-// an index into the sequence and a byte value. If the byte value is allowed at
-// that index, the function should return true.
+// The channel is closed after the last valid sequence, making this suitable
+// for use in "for range" constructs.
 //
-// Note that this is obviously not a complete set of constraints. It allows us
-// to do significant pruning while exploring the graph, though, so more
-// complete constraints can be implemented more efficiently from outside.
-func (m *MealyMachine) ConstrainedRecognized(allowed Constraint) <-chan []byte {
+// Constraints are specified by following the Constraints interface above. Not
+// all possible constraints can be specified that way, but those that are
+// important for branch reduction are. More complex constaints should be
+// implemented as a filter on the output, but size and allowed-value
+// constraints can be very helpful in reducing the amount of work done by the
+// machine to generate sequences.
+func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 	out := make(chan []byte)
 
 	// Advance the last element of the node path, taking constraints into
@@ -261,7 +270,7 @@ func (m *MealyMachine) ConstrainedRecognized(allowed Constraint) <-chan []byte {
 		size := len(path)
 		n := &path[size-1]
 		for ; n.cur < len(n.state); n.cur++ {
-			if allowed.canBranch(size-1, n.Trigger()) {
+			if con.IsValueAllowed(size-1, n.Trigger()) {
 				break
 			}
 		}
@@ -304,11 +313,11 @@ func (m *MealyMachine) ConstrainedRecognized(allowed Constraint) <-chan []byte {
 		for path = popExhausted(path); len(path) > 0; path = popExhausted(path) {
 			end := &path[len(path)-1]
 			curTransition := end.CurrentTransition()
-			if curTransition.IsTerminal() && allowed.BigEnough(len(path)){
+			if curTransition.IsTerminal() && con.IsLargeEnough(len(path)){
 				out <- getBytes(path)
 			}
 			nextState := m.States[curTransition.ToState()]
-			if !nextState.IsEmpty() && allowed.SmallEnough(len(path)) {
+			if !nextState.IsEmpty() && con.IsSmallEnough(len(path)) {
 				node := pathNode{nextState, 0}
 				path = append(path, node)
 			} else {
@@ -321,13 +330,26 @@ func (m *MealyMachine) ConstrainedRecognized(allowed Constraint) <-chan []byte {
 	return out
 }
 
-func (m *MealyMachine) AllRecognized() (out <-chan []byte) {
-	c := Constraint{
-		minLen:    0,
-		maxLen:    0,
-		canBranch: func(int, byte) bool { return true },
-	}
-	return m.ConstrainedRecognized(c)
+// A fully unconstrained Constraints implementation. Always returns true for
+// all methods.
+type FullyUnconstrained struct {}
+func (c FullyUnconstrained) IsSmallEnough(int) bool {
+	return true
+}
+func (c FullyUnconstrained) IsLargeEnough(int) bool {
+	return true
+}
+func (c FullyUnconstrained) IsValueAllowed(int, byte) bool {
+	return true
+}
+
+// Return a channel to which all recognized sequences will be sent.
+// The channel is closed after the last sequence, making this suitable for use
+// in "for range" constructs.
+//
+// This is an alias for ConstrainedSequences(FullyUnconstrained{}).
+func (m *MealyMachine) AllSequences() (out <-chan []byte) {
+	return m.ConstrainedRecognized(FullyUnconstrained{})
 }
 
 func main() {
