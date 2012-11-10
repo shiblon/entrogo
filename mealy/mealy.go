@@ -1,4 +1,3 @@
-// vim: noet sw=4 sts=4 ts=4
 package mealy
 
 import (
@@ -44,7 +43,7 @@ func (t Transition) IsTerminal() bool {
 
 // A nice human-readable representation.
 func (t Transition) String() string {
-	return fmt.Sprintf("%x->%d (%t)", t.Trigger(), t.ToState(), t.IsTerminal())
+	return fmt.Sprintf("%x->%x (%t)", t.Trigger(), t.ToState(), t.IsTerminal())
 }
 
 // States are just a (possibly empty) list of transitions to other states.
@@ -117,12 +116,11 @@ type MealyMachine struct {
 	LongestPath int
 }
 
-func (m MealyMachine) Start() State {
-	return m.States[m.StartID]
-}
+// Builds a new mealy machine from an ordered list of values. Keeps working
+// until the channel is closed, at which point it finalizes and returns.
+func NewMealyMachine(values <-chan []byte) MealyMachine {
+	m := MealyMachine{}
 
-// Builds a new mealy machine from an ordered list of values.
-func (m *MealyMachine) BuildFromOrderedValues(values <-chan []byte) {
 	states := make(map[string]int)
 	terminals := []bool{false}
 	larvae := []State{State{}}
@@ -187,6 +185,12 @@ func (m *MealyMachine) BuildFromOrderedValues(values <-chan []byte) {
 	// Finish up by making all remaining states, then create a start state.
 	makeSuffixStates(0)
 	m.StartID = makeState(larvae[0])
+
+	return m
+}
+
+func (m MealyMachine) Start() State {
+	return m.States[m.StartID]
 }
 
 func (m *MealyMachine) Recognizes(value []byte) bool {
@@ -266,14 +270,16 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 
 	// Advance the last element of the node path, taking constraints into
 	// account.
-	advanceUntilAllowed := func(path []pathNode) {
-		size := len(path)
-		n := &path[size-1]
+	advanceUntilAllowed := func(i int, n *pathNode) {
 		for ; n.cur < len(n.state); n.cur++ {
-			if con.IsValueAllowed(size-1, n.Trigger()) {
+			if con.IsValueAllowed(i, n.Trigger()) {
 				break
 			}
 		}
+	}
+
+	advanceLastUntilAllowed := func(path []pathNode) {
+		advanceUntilAllowed(len(path)-1, &path[len(path)-1])
 	}
 
 	// Pop off all of the exhausted states (we've explored all outward paths).
@@ -289,6 +295,7 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 			size--
 			if size > 0 {
 				path[size-1].Advance()
+				advanceUntilAllowed(size-1, &path[size-1])
 			}
 		}
 		if size != len(path) {
@@ -308,12 +315,12 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 	go func() {
 		defer close(out)
 		path := append(make([]pathNode, 0, m.LongestPath), pathNode{m.Start(), 0})
-		advanceUntilAllowed(path)
+		advanceLastUntilAllowed(path) // Needed for node initialization
 
 		for path = popExhausted(path); len(path) > 0; path = popExhausted(path) {
 			end := &path[len(path)-1]
 			curTransition := end.CurrentTransition()
-			if curTransition.IsTerminal() && con.IsLargeEnough(len(path)){
+			if curTransition.IsTerminal() && con.IsLargeEnough(len(path)) {
 				out <- getBytes(path)
 			}
 			nextState := m.States[curTransition.ToState()]
@@ -323,7 +330,7 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 			} else {
 				end.Advance()
 			}
-			advanceUntilAllowed(path)
+			advanceLastUntilAllowed(path) // Needed for advance and init above.
 		}
 	}()
 
@@ -332,7 +339,8 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 
 // A fully unconstrained Constraints implementation. Always returns true for
 // all methods.
-type FullyUnconstrained struct {}
+type FullyUnconstrained struct{}
+
 func (c FullyUnconstrained) IsSmallEnough(int) bool {
 	return true
 }
@@ -349,41 +357,5 @@ func (c FullyUnconstrained) IsValueAllowed(int, byte) bool {
 //
 // This is an alias for ConstrainedSequences(FullyUnconstrained{}).
 func (m *MealyMachine) AllSequences() (out <-chan []byte) {
-	return m.ConstrainedRecognized(FullyUnconstrained{})
-}
-
-func main() {
-	words := make(chan []byte)
-
-	go func() {
-		defer close(words)
-		send := func(s string) {
-			words <- []byte(s)
-		}
-		send("A")
-		send("AA")
-		send("AAA")
-		send("AAB")
-		send("BAA")
-		send("CAT")
-		send("CATERPILLAR")
-		send("CATERWAL")
-		send("DOG")
-	}()
-
-	m := new(MealyMachine)
-	m.BuildFromOrderedValues(words)
-	fmt.Println(m)
-	fmt.Println(m.Recognizes([]byte("BAA")))
-	fmt.Println(m.Recognizes([]byte("BAB")))
-	fmt.Println(m.Recognizes([]byte("AAB")))
-
-	c := Constraint{
-		minLen:    3,
-		maxLen:    8,
-		canBranch: func(i int, b byte) bool { return i != 2 || b == 'T' },
-	}
-	for word := range m.ConstrainedRecognized(c) {
-		fmt.Println(string(word))
-	}
+	return m.ConstrainedSequences(FullyUnconstrained{})
 }
