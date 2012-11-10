@@ -158,11 +158,11 @@ func TestSerialize(t *testing.T) {
 	m := FromChannel(AllStrings().ToChannel())
 
 	var buffer bytes.Buffer
-	if err := m.Serialize(&buffer); err != nil {
+	if err := m.WriteTo(&buffer); err != nil {
 		t.Error(err.Error())
 	}
 
-	if read, err := Deserialize(&buffer); err != nil {
+	if read, err := ReadFrom(&buffer); err != nil {
 		t.Error(err.Error())
 	} else {
 		if mStr, rStr := m.String(), read.String(); mStr != rStr {

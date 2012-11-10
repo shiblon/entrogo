@@ -9,7 +9,7 @@ import (
 const serializationPrefix = "MMeMv1"
 
 // Serialize the Mealy machine to a Writer.
-func (m MealyMachine) Serialize(w io.Writer) (err error) {
+func (m MealyMachine) WriteTo(w io.Writer) (err error) {
 	if err = binary.Write(w, binary.BigEndian, []byte(serializationPrefix)); err != nil {
 		return
 	}
@@ -30,7 +30,7 @@ func (m MealyMachine) Serialize(w io.Writer) (err error) {
 }
 
 // Deserialize the Mealy machine from a Reader.
-func Deserialize(r io.Reader) (m MealyMachine, err error) {
+func ReadFrom(r io.Reader) (m MealyMachine, err error) {
 	// Read version string, then all states in order (each is a slice over
 	// uint32).
 	versionString := make([]byte, len(serializationPrefix))
