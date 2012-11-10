@@ -5,33 +5,27 @@ import (
 	"fmt"
 )
 
-// A Mealy recognizer is a list of states. We keep track of a few other things,
-// too, like the longest path found.
-type MealyMachine struct {
-	StartID     int
-	States      []State
-	LongestPath int
-}
+type MealyMachine []state
 
 // Builds a new mealy machine from an ordered list of values. Keeps working
 // until the channel is closed, at which point it finalizes and returns.
-func NewMealyMachine(values <-chan []byte) MealyMachine {
+func FromChannel(values <-chan []byte) MealyMachine {
 	m := MealyMachine{}
 
 	states := make(map[string]int)
 	terminals := []bool{false}
-	larvae := []State{State{}}
+	larvae := []state{state{}}
 
 	prefixLen := 0
 	prevValue := []byte{}
 
 	// Find or create a state corresponding to what's passed in.
-	makeState := func(s State) (id int) {
+	makeState := func(s state) (id int) {
 		fprint := s.Fingerprint()
 		var ok bool
 		if id, ok = states[fprint]; !ok {
-			id = len(m.States)
-			m.States = append(m.States, s)
+			id = len(m)
+			m = append(m, s)
 			states[fprint] = id
 		}
 		return
@@ -62,9 +56,6 @@ func NewMealyMachine(values <-chan []byte) MealyMachine {
 					"values: %v : %v\n",
 				prevValue, value))
 		}
-		if len(value) > m.LongestPath {
-			m.LongestPath = len(value)
-		}
 		prefixLen = commonPrefixLen(prevValue, value)
 		makeSuffixStates(prefixLen)
 		// Go from first uncommon byte to end of new value, resetting
@@ -72,7 +63,7 @@ func NewMealyMachine(values <-chan []byte) MealyMachine {
 		larvae = larvae[:prefixLen+1]
 		terminals = terminals[:prefixLen+1]
 		for i := prefixLen + 1; i < len(value)+1; i++ {
-			larvae = append(larvae, State{})
+			larvae = append(larvae, state{})
 			terminals = append(terminals, false)
 		}
 		terminals[len(value)] = true
@@ -81,41 +72,50 @@ func NewMealyMachine(values <-chan []byte) MealyMachine {
 
 	// Finish up by making all remaining states, then create a start state.
 	makeSuffixStates(0)
-	m.StartID = makeState(larvae[0])
+	if startId := makeState(larvae[0]); startId != len(m) - 1 {
+		panic(fmt.Sprintf(
+			"Unexpected start ID, not at the end: %v < %v",
+			startId, len(m) - 1))
+	}
 
+	// Start state is at len - 1; final state is at 0.
 	return m
 }
 
-func (m MealyMachine) Start() State {
-	return m.States[m.StartID]
+func (m MealyMachine) String() string {
+	return fmt.Sprintf("%v", []state(m))
 }
 
-func (m *MealyMachine) Recognizes(value []byte) bool {
-	if len(m.States) == 0 {
+func (m MealyMachine) Start() state {
+	return m[len(m)-1]
+}
+
+func (m MealyMachine) Recognizes(value []byte) bool {
+	if len(m) == 0 {
 		return false
 	}
 
-	var transition Transition
+	var tran transition
 
 	state := m.Start()
 	for _, v := range value {
 		if found := state.IndexForTrigger(v); found < len(state) {
-			transition = state[found]
-			state = m.States[transition.ToState()]
+			tran = state[found]
+			state = m[tran.ToState()]
 		} else {
 			break
 		}
 	}
-	return transition.IsTerminal()
+	return tran.IsTerminal()
 }
 
 type pathNode struct {
-	state State
-	cur   int
+	s state
+	c int
 }
 
-func (p pathNode) CurrentTransition() Transition {
-	return p.state[p.cur]
+func (p pathNode) CurrentTransition() transition {
+	return p.s[p.c]
 }
 func (p pathNode) ToState() int {
 	return p.CurrentTransition().ToState()
@@ -127,10 +127,17 @@ func (p pathNode) Trigger() byte {
 	return p.CurrentTransition().Trigger()
 }
 func (p pathNode) Exhausted() bool {
-	return p.cur >= len(p.state)
+	return p.c >= len(p.s)
 }
 func (p *pathNode) Advance() {
-	p.cur++
+	p.c++
+}
+func (p *pathNode) AdvanceUntilAllowed(allowed func(byte) bool) {
+	for ; p.c < len(p.s); p.c++ {
+		if allowed(p.Trigger()) {
+			break
+		}
+	}
 }
 
 // Return a channel that produces all recognized sequences for this machine.
@@ -149,11 +156,9 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 	// Advance the last element of the node path, taking constraints into
 	// account.
 	advanceUntilAllowed := func(i int, n *pathNode) {
-		for ; n.cur < len(n.state); n.cur++ {
-			if con.IsValueAllowed(i, n.Trigger()) {
-				break
-			}
-		}
+		n.AdvanceUntilAllowed(func(b byte) bool {
+			return con.IsValueAllowed(i, b)
+		})
 	}
 
 	advanceLastUntilAllowed := func(path []pathNode) {
@@ -192,7 +197,7 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 
 	go func() {
 		defer close(out)
-		path := append(make([]pathNode, 0, m.LongestPath), pathNode{m.Start(), 0})
+		path := []pathNode{pathNode{m.Start(), 0}}
 		advanceLastUntilAllowed(path) // Needed for node initialization
 
 		for path = popExhausted(path); len(path) > 0; path = popExhausted(path) {
@@ -201,7 +206,7 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 			if curTransition.IsTerminal() && con.IsLargeEnough(len(path)) {
 				out <- getBytes(path)
 			}
-			nextState := m.States[curTransition.ToState()]
+			nextState := (*m)[curTransition.ToState()]
 			if !nextState.IsEmpty() && con.IsSmallEnough(len(path)) {
 				node := pathNode{nextState, 0}
 				path = append(path, node)

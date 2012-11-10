@@ -11,63 +11,63 @@ import (
 //
 // - 8 bits: trigger value (a byte) - first to make sorting work as expected.
 //
-// - 23 bits: next state ID (We can thus handle a little over 8 million states).
-//
 // - 1 bit: terminal flag
-type Transition uint32
+//
+// - 23 bits: next state ID (We can thus handle a little over 8 million states).
+type transition uint32
 
 // Create a new transition, triggered by "trigger", passing to state
 // "toStateId", and with terminal status "isTerminal".
-func NewTransition(trigger byte, toStateId int, isTerminal bool) Transition {
+func NewTransition(trigger byte, toStateId int, isTerminal bool) transition {
 	t := uint32(trigger) << 24
-	t |= (uint32(toStateId) << 1) & 0xfffffe
 	if isTerminal {
-		t |= 0x01
+		t |= 0x800000
 	}
-	return Transition(t)
+	t |= (uint32(toStateId) & 0x7fffff)
+	return transition(t)
 }
 
 // Return the value that triggers this transition.
-func (t Transition) Trigger() byte {
+func (t transition) Trigger() byte {
 	return byte(t >> 24)
 }
 
 // Get the next State ID from this transition (an integer).
-func (t Transition) ToState() int {
-	return int(t>>1) & 0x7fffff
+func (t transition) ToState() int {
+	return int(t & 0x7fffff)
 }
 
 // Return true if this transition is a terminal transition.
-func (t Transition) IsTerminal() bool {
-	return (t & 1) != 0
+func (t transition) IsTerminal() bool {
+	return (t & 0x800000) != 0
 }
 
 // A nice human-readable representation.
-func (t Transition) String() string {
+func (t transition) String() string {
 	return fmt.Sprintf("%x->%x (%t)", t.Trigger(), t.ToState(), t.IsTerminal())
 }
 
 // States are just a (possibly empty) list of transitions to other states.
 // Implements the sorting interface.
-type State []Transition
+type state []transition
 
-func (s State) Len() int {
+func (s state) Len() int {
 	return len(s)
 }
-func (s State) Less(i, j int) bool {
+func (s state) Less(i, j int) bool {
 	return s[i] < s[j]
 }
-func (s State) Swap(i, j int) {
+func (s state) Swap(i, j int) {
 	s[i], s[j] = s[j], s[i]
 }
 
 // Return true if this state has no transitions.
-func (s State) IsEmpty() bool {
+func (s state) IsEmpty() bool {
 	return len(s) == 0
 }
 
 // Create a unique and deterministic fingerprint for this state.
-func (s State) Fingerprint() string {
+func (s state) Fingerprint() string {
 	hash := sha1.New()
 	for _, transition := range s {
 		binary.Write(hash, binary.BigEndian, transition)
@@ -76,7 +76,7 @@ func (s State) Fingerprint() string {
 }
 
 // Get the index of the transition corresponding to the given trigger value. Returns len(s) if not found.
-func (s State) IndexForTrigger(value byte) int {
+func (s state) IndexForTrigger(value byte) int {
 	i := sort.Search(len(s), func(x int) bool { return s[x].Trigger() >= value })
 	if i < len(s) && s[i].Trigger() == value {
 		return i
@@ -85,7 +85,7 @@ func (s State) IndexForTrigger(value byte) int {
 }
 
 // Add a transition to this state. Keeps them properly ordered.
-func (s *State) AddTransition(t Transition) {
+func (s *state) AddTransition(t transition) {
 	// Insert in sorted order.
 	i := sort.Search(len(*s), func(x int) bool { return (*s)[x] >= t })
 	if i < len(*s) && (*s)[i] == t {
@@ -98,4 +98,3 @@ func (s *State) AddTransition(t Transition) {
 	// shift things over) isn't necessarily all that helpful.
 	sort.Sort((*s)[i:])
 }
-

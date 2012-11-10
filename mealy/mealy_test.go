@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	//"testing/quick"
 )
 
 type TestStrings []string
@@ -111,7 +110,7 @@ func EqualChannels(t *testing.T, c1, c2 <-chan []byte) error {
 // Test Functions
 // ----------------------------------------------------------------------
 func ExampleRecognizes() {
-	m := NewMealyMachine(AllStrings().ToChannel())
+	m := FromChannel(AllStrings().ToChannel())
 
 	fmt.Println(m.Recognizes([]byte("BAA")))
 	fmt.Println(m.Recognizes([]byte("CBB")))
@@ -125,14 +124,14 @@ func ExampleRecognizes() {
 
 func TestAllSequences(t *testing.T) {
 	strings := AllStrings()
-	m := NewMealyMachine(strings.ToChannel())
+	m := FromChannel(strings.ToChannel())
 	if err := EqualChannels(t, strings.ToChannel(), m.AllSequences()); err != nil {
 		t.Error(err.Error())
 	}
 }
 
 func TestSizeConstrainedSequences(t *testing.T) {
-	m := NewMealyMachine(AllStrings().ToChannel())
+	m := FromChannel(AllStrings().ToChannel())
 	con := SizeConstrainedStrings()
 	if err := EqualChannels(t, TestStrings(con).ToChannel(), m.ConstrainedSequences(con)); err != nil {
 		t.Error(err.Error())
@@ -140,7 +139,7 @@ func TestSizeConstrainedSequences(t *testing.T) {
 }
 
 func TestA1ConstrainedSequences(t *testing.T) {
-	m := NewMealyMachine(AllStrings().ToChannel())
+	m := FromChannel(AllStrings().ToChannel())
 	con := A1ConstrainedStrings()
 	if err := EqualChannels(t, TestStrings(con).ToChannel(), m.ConstrainedSequences(con)); err != nil {
 		t.Error(err.Error())
@@ -148,9 +147,28 @@ func TestA1ConstrainedSequences(t *testing.T) {
 }
 
 func TestA1SizeConstrainedSequences(t *testing.T) {
-	m := NewMealyMachine(AllStrings().ToChannel())
+	m := FromChannel(AllStrings().ToChannel())
 	con := A1SizeConstrainedStrings()
 	if err := EqualChannels(t, TestStrings(con).ToChannel(), m.ConstrainedSequences(con)); err != nil {
 		t.Error(err.Error())
+	}
+}
+
+func TestSerialize(t *testing.T) {
+	m := FromChannel(AllStrings().ToChannel())
+
+	var buffer bytes.Buffer
+	if err := m.Serialize(&buffer); err != nil {
+		t.Error(err.Error())
+	}
+
+	if read, err := Deserialize(&buffer); err != nil {
+		t.Error(err.Error())
+	} else {
+		if mStr, rStr := m.String(), read.String(); mStr != rStr {
+			t.Error(fmt.Sprintf(
+				"Serialized and deserialized machines not equal:\n%v\t!=\n%v\n",
+				mStr, rStr))
+		}
 	}
 }
