@@ -2,289 +2,366 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha1"
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
-	"io"
 	"sort"
-	"strings"
 )
 
-type RuneSlice []rune
+// Transitions are 32-bit integers, and we split them up this way:
+// 8 bits: trigger value (a byte) - comes first so that these sort on triggers.
+// 23 bits: next state ID (We can handle a little over 8 million states).
+// 1 bit: terminal
+type Transition uint32
 
-func (p RuneSlice) Len() int {
-	return len(p)
-}
-func (p RuneSlice) Less(i, j int) bool {
-	return p[i] < p[j]
-}
-func (p RuneSlice) Swap(i, j int) {
-	p[i], p[j] = p[j], p[i]
-}
-
-type Transition struct {
-	NextState int
-	Character rune
-	Terminal  bool
+// Create a new transition, triggered by "trigger", passing to state
+// "toStateId", and with terminal status "isTerminal".
+func NewTransition(trigger byte, toStateId int, isTerminal bool) Transition {
+	t := uint32(trigger) << 24
+	t |= (uint32(toStateId) << 1) & 0xfffffe
+	if isTerminal {
+		t |= 0x01
+	}
+	return Transition(t)
 }
 
-func (t Transition) Fingerprint() string {
-	return fmt.Sprintf("%d:%c:%t", t.NextState, t.Character, t.Terminal)
+// Return the value that triggers this transition.
+func (t Transition) Trigger() byte {
+	return byte(t >> 24)
 }
+
+// Get the next State ID from this transition (an integer).
+func (t Transition) ToState() int {
+	return int(t>>1) & 0x7fffff
+}
+
+// Return true if this transition is a terminal transition.
+func (t Transition) IsTerminal() bool {
+	return (t & 1) != 0
+}
+
+// A nice human-readable representation.
 func (t Transition) String() string {
-	return t.Fingerprint()
+	return fmt.Sprintf("%x->%d (%t)", t.Trigger(), t.ToState(), t.IsTerminal())
 }
 
-type State struct {
-	ID          int
-	transitions map[rune]Transition
+// States are just a (possibly empty) list of transitions to other states.
+// Implements the sorting interface.
+type State []Transition
+
+func (s State) Len() int {
+	return len(s)
+}
+func (s State) Less(i, j int) bool {
+	return s[i] < s[j]
+}
+func (s State) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
 }
 
-func (s *State) String() string {
-	str := fmt.Sprintf("State %d:\n", s.ID)
-	for _, t := range s.transitions {
-		str += fmt.Sprintf("\t%v\n", t)
+// Return true if this state has no transitions.
+func (s State) IsEmpty() bool {
+	return len(s) == 0
+}
+
+// Gets a list of trigger values that lead to transitions out of this state.
+// Returned in sorted order.
+func (s State) Triggers() (triggers []byte) {
+	triggers = make([]byte, len(s))
+	for i, t := range s {
+		triggers[i] = t.Trigger()
 	}
-	return str
-}
-
-type DuplicateRuneError rune
-
-func (e DuplicateRuneError) Error() string {
-	return fmt.Sprintf("Duplicate rune %r", e)
-}
-
-func (s *State) IsEmpty() bool {
-	return len(s.transitions) == 0
-}
-
-func (s *State) AddTransition(t Transition) error {
-	if s.transitions == nil {
-		s.transitions = make(map[rune]Transition)
-	}
-	if _, ok := s.transitions[t.Character]; ok {
-		return DuplicateRuneError(t.Character)
-	}
-	s.transitions[t.Character] = t
-	return nil
-}
-
-func (s *State) Fingerprint() string {
-	// Can't safely memoize the key, since we might add transitions over time.
-	// Also, never include the ID - this is meant to be a transition fingerprint.
-	keys := make([]string, 0, len(s.transitions))
-	for _, v := range s.transitions {
-		keys = append(keys, v.Fingerprint())
-	}
-	sort.Strings(keys)
-	h := sha1.New()
-	for _, s := range keys {
-		io.WriteString(h, s)
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-func (s *State) OutboundRunes() (runes []rune) {
-	runes = make([]rune, len(s.transitions))
-	i := 0
-	for _, v := range s.transitions {
-		runes[i] = v.Character
-		i++
-	}
-	sort.Sort(RuneSlice(runes))
 	return
 }
 
-func CommonPrefixLen(a, b []rune) int {
-	i := 0
-	for i < len(a) && i < len(b) && a[i] == b[i] {
-		i++
+// Get a unique fingerprint for this state.
+func (s State) Fingerprint() string {
+	hash := sha1.New()
+	for _, transition := range s {
+		binary.Write(hash, binary.BigEndian, transition)
 	}
-	return i
+	return base64.StdEncoding.EncodeToString(hash.Sum(nil))
 }
 
+// Get the index of the transition corresponding to the given trigger value. Returns len(s) if not found.
+func (s State) IndexForTrigger(value byte) int {
+	i := sort.Search(len(s), func(x int) bool { return s[x].Trigger() >= value })
+	if i < len(s) && s[i].Trigger() == value {
+		return i
+	}
+	return len(s)
+}
+
+// Add a transition to this state. Keeps them properly ordered.
+func (s *State) AddTransition(t Transition) {
+	// Insert in sorted order.
+	i := sort.Search(len(*s), func(x int) bool { return (*s)[x] >= t })
+	if i < len(*s) && (*s)[i] == t {
+		// Already there - we're done.
+		return
+	}
+	*s = append(*s, t)
+	// TODO: can we do this faster? The problem is that we probably start out
+	// at capacity, then append, which copies already, so copying again (to
+	// shift things over) isn't necessarily all that helpful.
+	sort.Sort((*s)[i:])
+}
+
+// A Mealy recognizer is a list of states. We keep track of a few other things,
+// too, like the longest path found.
 type MealyMachine struct {
-	Start       *State
-	States      []*State
+	StartID     int
+	States      []State
 	LongestPath int
 }
 
-func (m *MealyMachine) BuildFromOrderedWords(words <-chan string) {
-	states := make(map[string]*State)
+func (m MealyMachine) Start() State {
+	return m.States[m.StartID]
+}
 
+// Builds a new mealy machine from an ordered list of values.
+func (m *MealyMachine) BuildFromOrderedValues(values <-chan []byte) {
+	states := make(map[string]int)
 	terminals := []bool{false}
-	larvae := []*State{&State{}}
+	larvae := []State{State{}}
 
-	prefixLength := 0
-	prevWord := []rune{}
-	newWord := []rune{}
+	prefixLen := 0
+	prevValue := []byte{}
 
-	// Create a new channel that ends with the empty string, to finish the algorithm elegantly.
-	terminatingWords := make(chan string)
-	go func() {
-		defer close(terminatingWords)
-		for w := range words {
-			terminatingWords <- strings.ToUpper(w)
-		}
-		terminatingWords <- "" // end with the empty string
-	}()
-
-	makeState := func(s *State) (newState *State) {
-		if found, ok := states[s.Fingerprint()]; ok {
-			newState = found
-		} else {
-			newState = s
-			newState.ID = len(states)
-			states[newState.Fingerprint()] = newState
+	// Find or create a state corresponding to what's passed in.
+	makeState := func(s State) (id int) {
+		fprint := s.Fingerprint()
+		var ok bool
+		if id, ok = states[fprint]; !ok {
+			id = len(m.States)
+			m.States = append(m.States, s)
+			states[fprint] = id
 		}
 		return
 	}
 
-	for word := range terminatingWords {
-		newWord = []rune(word)
-		if len(newWord) > m.LongestPath {
-			m.LongestPath = len(newWord)
+	// Find the longest common prefix length.
+	commonPrefixLen := func(a, b []byte) (l int) {
+		for l = 0; l < len(a) && l < len(b) && a[l] == b[l]; l++ {
 		}
-		prefixLength = CommonPrefixLen(prevWord, newWord)
-		// Back up to the longest common prefix point, making states along the way.
-		for i := len(prevWord); i > prefixLength; i-- {
-			newState := makeState(larvae[i])
-			larvae[i-1].AddTransition(Transition{newState.ID, prevWord[i-1], terminals[i]})
+		return
+	}
+
+	// Make all states up to but not including the prefix point.
+	// Modifies larvae by adding transitions as needed.
+	makeSuffixStates := func(p int) {
+		for i := len(prevValue); i > p; i-- {
+			larvae[i-1].AddTransition(
+				NewTransition(prevValue[i-1],
+					makeState(larvae[i]),
+					terminals[i]))
 		}
-		// Go from first uncommon rune to end of new word, resetting everything (creating new states as needed).
-		larvae = larvae[:prefixLength+1]
-		terminals = terminals[:prefixLength+1]
-		for i := prefixLength + 1; i < len(newWord)+1; i++ {
-			larvae = append(larvae, &State{})
+	}
+
+	for value := range values {
+		if bytes.Compare(prevValue, value) >= 0 {
+			panic(fmt.Sprintf(
+				"Cannot build a Mealy machine from out-of-order "+
+					"values: %v : %v\n",
+				prevValue, value))
+		}
+		if len(value) > m.LongestPath {
+			m.LongestPath = len(value)
+		}
+		prefixLen = commonPrefixLen(prevValue, value)
+		makeSuffixStates(prefixLen)
+		// Go from first uncommon byte to end of new value, resetting
+		// everything (creating new states as needed).
+		larvae = larvae[:prefixLen+1]
+		terminals = terminals[:prefixLen+1]
+		for i := prefixLen + 1; i < len(value)+1; i++ {
+			larvae = append(larvae, State{})
 			terminals = append(terminals, false)
 		}
-		terminals[len(newWord)] = true
-		prevWord = newWord
+		terminals[len(value)] = true
+		prevValue = value
 	}
-	m.Start = makeState(larvae[0])
-	m.States = make([]*State, len(states))
-	for _, s := range states {
-		m.States[s.ID] = s
-	}
+
+	// Finish up by making all remaining states, then create a start state.
+	makeSuffixStates(0)
+	m.StartID = makeState(larvae[0])
 }
 
-func (m *MealyMachine) Recognizes(word string) bool {
-	state := m.Start
+func (m *MealyMachine) Recognizes(value []byte) bool {
+	if len(m.States) == 0 {
+		return false
+	}
 
-	var terminal bool
-	for _, r := range []rune(strings.ToUpper(word)) {
-		if t, ok := state.transitions[r]; ok {
-			state, terminal = m.States[t.NextState], t.Terminal
+	var transition Transition
+
+	state := m.Start()
+	for _, v := range value {
+		if found := state.IndexForTrigger(v); found < len(state) {
+			transition = state[found]
+			state = m.States[transition.ToState()]
 		} else {
 			break
 		}
 	}
-	return state != nil && terminal
+	return transition.IsTerminal()
 }
 
-type stateInfo struct {
-	S   *State
-	Out []rune
-	Cur int
-}
-func (si *stateInfo) Rune() rune {
-	return si.Out[si.Cur]
-}
-func (si *stateInfo) Exhausted() bool {
-	return si.Cur >= len(si.Out)
-}
-func (si *stateInfo) Advance() {
-	si.Cur++
-}
-func (si *stateInfo) Terminal() bool {
-	return si.S.transitions[si.Rune()].Terminal
-}
-func (si *stateInfo) NextStateId() int {
-	return si.S.transitions[si.Rune()].NextState
+type pathNode struct {
+	state State
+	cur   int
 }
 
-// Return a channel that produces all recognized strings for this machine.
-// TODO: Add constraints, where we can force any index to be drawn from a set
-// of allowable runes.
-// This will affect "Advance" and the initialization of info objects, since
-// they'll need a constraint set added, as well as an initial "Cur" set to
-// something valid.
-func (m *MealyMachine) AllRecognized() <-chan string {
-	out := make(chan string)
+func (p pathNode) CurrentTransition() Transition {
+	return p.state[p.cur]
+}
+func (p pathNode) ToState() int {
+	return p.CurrentTransition().ToState()
+}
+func (p pathNode) IsTerminal() bool {
+	return p.CurrentTransition().IsTerminal()
+}
+func (p pathNode) Trigger() byte {
+	return p.CurrentTransition().Trigger()
+}
+func (p pathNode) Exhausted() bool {
+	return p.cur >= len(p.state)
+}
+func (p *pathNode) Advance() {
+	p.cur++
+}
+
+type Constraint struct {
+	minLen    int
+	maxLen    int
+	canBranch func(int, byte) bool // Given an index and a byte, say yes or no.
+}
+func (c Constraint) BigEnough(size int) bool {
+	return c.minLen == 0 || size >= c.minLen
+}
+func (c Constraint) SmallEnough(size int) bool {
+	return c.maxLen == 0 || size <= c.maxLen
+}
+
+// Return a channel that produces all recognized sequences for this machine.
+// Constraints are specified by passing in a true/false function that accepts
+// an index into the sequence and a byte value. If the byte value is allowed at
+// that index, the function should return true.
+//
+// Note that this is obviously not a complete set of constraints. It allows us
+// to do significant pruning while exploring the graph, though, so more
+// complete constraints can be implemented more efficiently from outside.
+func (m *MealyMachine) ConstrainedRecognized(allowed Constraint) <-chan []byte {
+	out := make(chan []byte)
+
+	// Advance the last element of the node path, taking constraints into
+	// account.
+	advanceUntilAllowed := func(path []pathNode) {
+		size := len(path)
+		n := &path[size-1]
+		for ; n.cur < len(n.state); n.cur++ {
+			if allowed.canBranch(size-1, n.Trigger()) {
+				break
+			}
+		}
+	}
 
 	// Pop off all of the exhausted states (we've explored all outward paths).
 	// Note that only an overflow on the *last* element triggers the popping
 	// cascade. Each time a pop occurs, the previous item is incremented,
 	// potentially triggering more overflows.
-	popExhausted := func(info []stateInfo) []stateInfo {
-		size := len(info)
+	popExhausted := func(path []pathNode) []pathNode {
+		size := len(path)
 		for size > 0 {
-			if !info[size-1].Exhausted() {
+			if !path[size-1].Exhausted() {
 				break
 			}
 			size--
 			if size > 0 {
-				info[size-1].Advance()
+				path[size-1].Advance()
 			}
 		}
-		if size != len(info) {
-			info = info[:size]
+		if size != len(path) {
+			path = path[:size]
 		}
-		return info
+		return path
 	}
 
-	getString := func(info []stateInfo) string {
-		runes := make([]rune, len(info))
-		for i, si := range info {
-			runes[i] = si.Rune()
+	getBytes := func(path []pathNode) []byte {
+		bytes := make([]byte, len(path))
+		for i, node := range path {
+			bytes[i] = node.CurrentTransition().Trigger()
 		}
-		return string(runes)
+		return bytes
 	}
 
 	go func() {
 		defer close(out)
-		info := append(
-			make([]stateInfo, 0, m.LongestPath),
-			stateInfo{m.Start, m.Start.OutboundRunes(), 0})
+		path := append(make([]pathNode, 0, m.LongestPath), pathNode{m.Start(), 0})
+		advanceUntilAllowed(path)
 
-		for info = popExhausted(info); len(info) > 0; info = popExhausted(info) {
-			end := &info[len(info)-1]
-			if end.Terminal() {
-				out <- getString(info)
+		for path = popExhausted(path); len(path) > 0; path = popExhausted(path) {
+			end := &path[len(path)-1]
+			curTransition := end.CurrentTransition()
+			if curTransition.IsTerminal() && allowed.BigEnough(len(path)){
+				out <- getBytes(path)
 			}
-			if nextState := m.States[end.NextStateId()]; !nextState.IsEmpty() {
-				info = append(info, stateInfo{nextState, nextState.OutboundRunes(), 0})
+			nextState := m.States[curTransition.ToState()]
+			if !nextState.IsEmpty() && allowed.SmallEnough(len(path)) {
+				node := pathNode{nextState, 0}
+				path = append(path, node)
 			} else {
 				end.Advance()
 			}
+			advanceUntilAllowed(path)
 		}
 	}()
 
 	return out
 }
 
+func (m *MealyMachine) AllRecognized() (out <-chan []byte) {
+	c := Constraint{
+		minLen:    0,
+		maxLen:    0,
+		canBranch: func(int, byte) bool { return true },
+	}
+	return m.ConstrainedRecognized(c)
+}
+
 func main() {
-	words := make(chan string)
+	words := make(chan []byte)
+
 	go func() {
 		defer close(words)
-		words <- "A"
-		words <- "AA"
-		words <- "AAA"
-		words <- "AAB"
-		words <- "BAA"
-		words <- "CAT"
-		words <- "CATERPILLAR"
-		words <- "CATERWAL"
-		words <- "DOG"
+		send := func(s string) {
+			words <- []byte(s)
+		}
+		send("A")
+		send("AA")
+		send("AAA")
+		send("AAB")
+		send("BAA")
+		send("CAT")
+		send("CATERPILLAR")
+		send("CATERWAL")
+		send("DOG")
 	}()
 
 	m := new(MealyMachine)
-	m.BuildFromOrderedWords(words)
+	m.BuildFromOrderedValues(words)
 	fmt.Println(m)
-	fmt.Println(m.Recognizes("BAA"))
-	fmt.Println(m.Recognizes("BAB"))
-	fmt.Println(m.Recognizes("AAB"))
+	fmt.Println(m.Recognizes([]byte("BAA")))
+	fmt.Println(m.Recognizes([]byte("BAB")))
+	fmt.Println(m.Recognizes([]byte("AAB")))
 
-	for word := range m.AllRecognized() {
-		fmt.Println(word)
+	c := Constraint{
+		minLen:    3,
+		maxLen:    8,
+		canBranch: func(i int, b byte) bool { return i != 2 || b == 'T' },
+	}
+	for word := range m.ConstrainedRecognized(c) {
+		fmt.Println(string(word))
 	}
 }
