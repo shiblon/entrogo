@@ -25,7 +25,7 @@ func TextFileToChannel(inName string) <-chan string {
 		r := bufio.NewReader(file)
 		line, err := r.ReadString('\n')
 		for ; err == nil; line, err = r.ReadString('\n') {
-			words <- strings.ToUpper(line)
+			words <- strings.TrimSpace(strings.ToUpper(line))
 		}
 		if err != io.EOF {
 			log.Fatal(err)

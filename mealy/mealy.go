@@ -1,3 +1,10 @@
+/*
+* Implements a Mealy Machine as described in the paper
+*
+* 		http://www.n3labs.com/pdf/lexicon-squeeze.pdf
+*
+* The machine is defined for byte values, and serializes with that assumption.
+*/
 package mealy
 
 import (
@@ -204,7 +211,9 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 			end := &path[len(path)-1]
 			curTransition := end.CurrentTransition()
 			if curTransition.IsTerminal() && con.IsLargeEnough(len(path)) {
-				out <- getBytes(path)
+				if b := getBytes(path); con.IsSequenceAllowed(b) {
+					out <- b
+				}
 			}
 			nextState := (*m)[curTransition.ToState()]
 			if !nextState.IsEmpty() && con.IsSmallEnough(len(path)) {
@@ -224,7 +233,7 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 // The channel is closed after the last sequence, making this suitable for use
 // in "for range" constructs.
 //
-// This is an alias for ConstrainedSequences(FullyUnconstrained{}).
+// This is an alias for ConstrainedSequences(BaseConstraints{}).
 func (m *MealyMachine) AllSequences() (out <-chan []byte) {
-	return m.ConstrainedSequences(FullyUnconstrained{})
+	return m.ConstrainedSequences(BaseConstraints{})
 }
