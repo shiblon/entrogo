@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sort"
+	"strings"
 )
 // Transitions are 32-bit integers split up thus:
 //
@@ -51,6 +52,13 @@ func (t transition) String() string {
 // Implements the sorting interface.
 type state []transition
 
+func (s state) String() string {
+	transitions := make([]string, len(s))
+	for i, t := range s {
+		transitions[i] = t.String()
+	}
+	return "\t" + strings.Join(transitions, "\n\t");
+}
 func (s state) Len() int {
 	return len(s)
 }

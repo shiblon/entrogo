@@ -216,7 +216,7 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 				}
 			}
 			nextState := (*m)[curTransition.ToState()]
-			if !nextState.IsEmpty() && con.IsSmallEnough(len(path)) {
+			if !nextState.IsEmpty() && con.IsSmallEnough(len(path) + 1) {
 				node := pathNode{nextState, 0}
 				path = append(path, node)
 			} else {

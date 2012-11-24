@@ -77,8 +77,12 @@ type MissingLetterConstraint struct {
 func NewMissingLetterConstraint(query string) MissingLetterConstraint {
 	return MissingLetterConstraint{Query: query}
 }
-func (mlc MissingLetterConstraint) IsSmallEnough(size int) bool { return size == len(mlc.Query) }
-func (mlc MissingLetterConstraint) IsLargeEnough(size int) bool { return size == len(mlc.Query) }
+func (mlc MissingLetterConstraint) IsSmallEnough(size int) bool {
+	return size <= len(mlc.Query)
+}
+func (mlc MissingLetterConstraint) IsLargeEnough(size int) bool {
+	return size >= len(mlc.Query)
+}
 func (mlc MissingLetterConstraint) IsValueAllowed(i int, val byte) bool {
 	return mlc.Query[i] == '.' || mlc.Query[i] == val
 }
