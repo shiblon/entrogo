@@ -39,6 +39,7 @@ type SizeConstraint TestStrings
 func (c SizeConstraint) IsLargeEnough(s int) bool          { return s >= 2 }
 func (c SizeConstraint) IsSmallEnough(s int) bool          { return s <= 3 }
 func (c SizeConstraint) IsValueAllowed(i int, v byte) bool { return true }
+func (c SizeConstraint) IsSequenceAllowed(seq []byte) bool { return true }
 
 func SizeConstrainedStrings() SizeConstraint {
 	return SizeConstraint{
@@ -58,6 +59,7 @@ func (c A1Constraint) IsSmallEnough(s int) bool { return true }
 func (c A1Constraint) IsValueAllowed(i int, v byte) bool {
 	return i != 1 || v == byte('A')
 }
+func (c A1Constraint) IsSequenceAllowed(seq []byte) bool { return true }
 
 func A1ConstrainedStrings() A1Constraint {
 	return A1Constraint{
@@ -77,6 +79,7 @@ func (c A1SizeConstraint) IsSmallEnough(s int) bool { return s <= 3 }
 func (c A1SizeConstraint) IsValueAllowed(i int, v byte) bool {
 	return i != 1 || v == byte('A')
 }
+func (c A1SizeConstraint) IsSequenceAllowed(seq []byte) bool { return true }
 
 func A1SizeConstrainedStrings() A1SizeConstraint {
 	return A1SizeConstraint{
