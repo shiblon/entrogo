@@ -20,6 +20,9 @@ type MatchedWord struct {
 
 // Parse a query string and return a list of constraint strings that can be used
 // to find valid words (assuming an unlimited supply of arbitrary letters).
+// Constraint strings are just letters or . for a wild. A constraint string
+// specifies either a complete match (tile already there), a full wild ('.') or
+// a constrained wild (e.g., '.in').
 //
 // 	All letters are converted to uppercase before proceeding.
 //
@@ -121,6 +124,68 @@ func (idx Index) ValidMissingLetters(query string) (allLetters string) {
 	return strings.Join(ordered, "")
 }
 
+// Given a query string, produce the sequence of allowed letters (in a string).
+// This does not consider the stuff currently allowed in play, just what the
+// dictionary allows.
+//
+// In particular, for each of these, we produce something:
+// - A letter: itself
+// - A '.': itself (just means "everything")
+// - A 'xx.xx' constraint: all letters that make it a word.
+//
+// Note that this means that some wild information can be lost, particularly in
+// instances where a constrained wild has only one letter that can satisfy the
+// query. So, we also return a list of booleans indicating whether the tile at
+// that location is fixed (false) or drawable (true).
+//
+// In total, we return
+//
+// (possible, draws, allowedLetters)
+func (idx Index) GetAllowedLetters(queryPieces []string) (bool, []bool, []string) {
+	// Now for each entry, find a list of letters that can work. Note that
+	// we don't test for non-replacement, here. If there is a '.' in the
+	// group, we'll get all letters. That may need to be optimized later,
+	// but it doesn't seem super likely. The next pass, over actually
+	// discovered words, will eliminate things based on replaceability.
+	allowed := make([]string, len(queryPieces))
+	drawIndices := make(map[int]bool, 0)
+	possible := true
+	curIndex := 0
+	for i, qp := range queryPieces {
+		switch {
+		case qp == "|":
+			if i == 0 {
+				allowed[i] = "^"
+			} else {
+				allowed[i] = "$"
+			}
+			// Skip incrementing letter indices.
+			continue
+		case qp == ".":
+			allowed[i] = qp
+			drawIndices[curIndex] = true
+		case len(qp) == 1:
+			allowed[i] = qp
+		default:
+			found := idx.ValidMissingLetters(qp)
+			if len(found) > 0 {
+				allowed[i] = found
+				drawIndices[curIndex] = true
+			} else {
+				allowed[i] = "~"
+				possible = false
+			}
+		}
+		curIndex++
+	}
+	// Convert drawIndices to a list of booleans.
+	draws := make([]bool, len(allowed))
+	for i := 0; i < len(draws); i++ {
+		draws[i] = drawIndices[i]
+	}
+	return possible, draws, allowed
+}
+
 
 func main() {
 	available := make(map[string]int)
@@ -152,42 +217,7 @@ func main() {
 	index := Index{mealy}
 	fmt.Println("DONE")
 
-	// Now for each entry, find a list of letters that can work. Note that
-	// we don't test for non-replacement, here. If there is a '.' in the
-	// group, we'll get all letters. That may need to be optimized later,
-	// but it doesn't seem super likely. The next pass, over actually
-	// discovered words, will eliminate things based on replaceability.
-	allowed := make([]string, len(queryPieces))
-	drawIndices := make(map[int]bool, 0)
-	possible := true
-	curIndex := 0
-	for i, qp := range queryPieces {
-		switch {
-		case qp == "|":
-			if i == 0 {
-				allowed[i] = "^"
-			} else {
-				allowed[i] = "$"
-			}
-			// Skip incrementing letter indices.
-			continue
-		case qp == ".":
-			allowed[i] = qp
-			drawIndices[curIndex] = true
-		case len(qp) == 1:
-			allowed[i] = qp
-		default:
-			found := index.ValidMissingLetters(qp)
-			if len(found) > 0 {
-				allowed[i] = found
-				drawIndices[curIndex] = true
-			} else {
-				allowed[i] = "~"
-				possible = false
-			}
-		}
-		curIndex++
-	}
+	possible, draws, allowed := index.GetAllowedLetters(queryPieces)
 
 	// Now actually search the word list for words that correspond to this,
 	// using a regular expression.
@@ -234,9 +264,9 @@ func main() {
 			Prefix: word[:loc[0]],
 			Suffix: word[loc[1]:],
 		}
-		needed := make(map[string]int, len(m.Prefix)+len(m.Suffix)+len(drawIndices))
+		needed := make(map[string]int, len(draws))
 		for ci, ch := range m.Match {
-			if drawIndices[ci] {
+			if draws[ci] {
 				needed[string(ch)]++
 			}
 		}
@@ -257,7 +287,7 @@ func main() {
 
 	// Now we try to assign from our pool of possible letters, to each of
 	// the not-fully-constrained bits in our words, skipping over the
-	// endpoint notifiers. The drawIndices indicate which entries are used
+	// endpoint notifiers. The draws indicate which entries are used
 	// to draw from our available letters.
 
 	if len(available) == 0 {
