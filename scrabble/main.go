@@ -140,50 +140,77 @@ func (idx Index) ValidMissingLetters(query string) (allLetters string) {
 //
 // In total, we return
 //
-// (possible, draws, allowedLetters)
-func (idx Index) GetAllowedLetters(queryPieces []string) (bool, []bool, []string) {
+// (possible, boundLeft, boundRight, draws, allowedLetters)
+func (idx Index) GetAllowedLetters(queryPieces []string) (bool, bool, bool, []bool, []string) {
 	// Now for each entry, find a list of letters that can work. Note that
 	// we don't test for non-replacement, here. If there is a '.' in the
 	// group, we'll get all letters. That may need to be optimized later,
 	// but it doesn't seem super likely. The next pass, over actually
 	// discovered words, will eliminate things based on replaceability.
-	allowed := make([]string, len(queryPieces))
-	drawIndices := make(map[int]bool, 0)
+	allowed := make([]string, 0, len(queryPieces))
+	draws := make([]bool, 0, len(queryPieces))
 	possible := true
-	curIndex := 0
+	boundLeft := false
+	boundRight := false
 	for i, qp := range queryPieces {
 		switch {
 		case qp == "|":
 			if i == 0 {
-				allowed[i] = "^"
+				boundLeft = true
 			} else {
-				allowed[i] = "$"
+				boundRight = true
 			}
-			// Skip incrementing letter indices.
-			continue
 		case qp == ".":
-			allowed[i] = qp
-			drawIndices[curIndex] = true
+			draws = append(draws, true)
+			allowed = append(allowed, qp)
 		case len(qp) == 1:
-			allowed[i] = qp
+			draws = append(draws, false)
+			allowed = append(allowed, qp)
 		default:
 			found := idx.ValidMissingLetters(qp)
-			if len(found) > 0 {
-				allowed[i] = found
-				drawIndices[curIndex] = true
-			} else {
-				allowed[i] = "~"
+			if len(found) == 0 {
+				found = "~"
 				possible = false
 			}
+			draws = append(draws, true)
+			allowed = append(allowed, found)
 		}
-		curIndex++
 	}
-	// Convert drawIndices to a list of booleans.
-	draws := make([]bool, len(allowed))
-	for i := 0; i < len(draws); i++ {
-		draws[i] = drawIndices[i]
+	return possible, boundLeft, boundRight, draws, allowed
+}
+
+func MakeRegexp(boundLeft, boundRight bool, draws []bool, allowed []string) (*regexp.Regexp, error) {
+	// Now actually search the word list for words that correspond to this,
+	// using a regular expression.
+	size := len(allowed)
+	if boundLeft {
+		size++
 	}
-	return possible, draws, allowed
+	if boundRight {
+		size++
+	}
+	clauses := make([]string, size)
+	offset := 0
+	if boundLeft {
+		clauses[0] = "^"
+		offset = 1
+	}
+	if boundRight {
+		clauses[len(clauses) - 1] = "$"
+	}
+	for i, s := range allowed {
+		if s == "." || !draws[i] {
+			clauses[i + offset] = s
+		} else {
+			clauses[i + offset] = fmt.Sprintf("[%v]", s)
+		}
+	}
+	clauseStr := strings.Join(clauses, "")
+	allowedExp, err := regexp.Compile(clauseStr)
+	if err != nil {
+		fmt.Printf("Failed to parse expression %v\n", clauseStr)
+	}
+	return allowedExp, err
 }
 
 
@@ -217,31 +244,15 @@ func main() {
 	index := Index{mealy}
 	fmt.Println("DONE")
 
-	possible, draws, allowed := index.GetAllowedLetters(queryPieces)
-
-	// Now actually search the word list for words that correspond to this,
-	// using a regular expression.
-	clauses := make([]string, len(allowed))
-	for i, s := range allowed {
-		if len(s) == 1 {
-			// TODO: This breaks human understandability if we have a word
-			// constraint where only one letter works because it looks like an
-			// already-placed tile.  We need to just test the index for
-			// draw-ability instead, and always use character classes when
-			// there aren't tiles placed.
-			clauses[i] = s
-		} else {
-			clauses[i] = fmt.Sprintf("[%v]", s)
-		}
-	}
-	clauseStr := strings.Join(clauses, "")
-	allowedExp, err := regexp.Compile(clauseStr)
-	if err != nil {
-		fmt.Printf("Failed to parse expression %v\n", clauseStr)
+	possible, boundLeft, boundRight, draws, allowed := index.GetAllowedLetters(queryPieces)
+	if !possible {
+		fmt.Printf("Impossible because of nearby letter constraints at '~': %v.\n", allowed)
 		return
 	}
-	if !possible {
-		fmt.Printf("Impossible because of nearby letter constraints at '~': %v.\n", clauseStr)
+
+	allowedExp, err := MakeRegexp(boundLeft, boundRight, draws, allowed)
+	if err != nil {
+		fmt.Printf("Error getting regular expresison for %v", allowed)
 		return
 	}
 	fmt.Printf("Match Expression: %v\n", allowedExp)
