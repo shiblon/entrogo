@@ -213,6 +213,28 @@ func MakeRegexp(boundLeft, boundRight bool, draws []bool, allowed []string) (*re
 	return allowedExp, err
 }
 
+func GetSubConstraints(draws []bool, allowed []string) (<-chan []string) {
+	out := make(chan []string)
+	go func() {
+		defer close(out)
+		for left := 0; left < len(allowed); left++ {
+			right := len(allowed)
+			out <- allowed[left:right]
+			for right := left + 1; right < len(allowed); right++ {
+			// TODO: peel off all of the right peelables, and emit the resulting string one at a time.
+			// TODO: before emitting, check that there is at least one draw and one non-draw.
+			}
+			// If "left" is a non-draw index (fixed position), then we advance
+			// until it isn't anymore. Otherwise, it's fine to just peel this
+			// off (you can always peel off a draw on the left side.
+			for !draws[left] {
+				left++
+			}
+		}
+	}()
+	return out
+}
+
 
 func main() {
 	available := make(map[string]int)
