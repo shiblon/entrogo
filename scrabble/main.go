@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"monson/mealy"
@@ -19,6 +20,8 @@ type MatchedWord struct {
 }
 
 var (
+	Line = flag.Int("line", 0, "Row or column for this request - helps with scoring - 0 to skip.")
+
 	LetterScores = map[rune]int{
 		'A': 1, 'B': 3, 'C': 3, 'D': 2,
 		'E': 1, 'F': 4, 'G': 2, 'H': 4,
@@ -47,15 +50,36 @@ var (
 		"..#...#.#...#..",
 		"*..$...+...$..*",
 		".#..#.....#..#.",
+		"..#..+...+..#..",
 		"...*..$.$..*...",
 	}
 )
 
-func SeqScore(seq []byte) int {
+// An imperfect score for a sequence. If line is 0, just score the letters,
+// otherwise try to figure it out based on the board (1-based line count).
+// TODO: Add in information about intersecting words.
+
+// line and pos are both *1-based*.
+func SeqScore(seq []byte, line, pos int) int {
 	s := 0
-	for _, v := range seq {
-		s += LetterScores[rune(v)]
+	wordMultiplier := 1
+	for i, v := range seq {
+		p := pos + i
+		ls := LetterScores[rune(v)]
+		if line > 0 {
+			b := string(Board[line-1][p-1])
+			wm := WordMultipliers[b]
+			lm := LetterMultipliers[b]
+			if wm > 0 {
+				wordMultiplier *= wm
+			}
+			if lm > 0 {
+				ls *= lm
+			}
+		}
+		s += ls
 	}
+	s *= wordMultiplier
 	return s
 }
 
@@ -319,6 +343,7 @@ func GetSubConstraints(info AllowedInfo) <-chan Endpoints {
 }
 
 func main() {
+	flag.Parse()
 	available := make(map[byte]int)
 	isAvailable := func(seq []byte, draws []bool) bool {
 		if len(available) == 0 {
@@ -351,14 +376,15 @@ func main() {
 		return true
 	}
 
-	query := os.Args[1]
-	if len(os.Args) > 2 {
-		query = os.Args[2]
-		fmt.Println("Available:", os.Args[1])
-		for _, ch := range strings.ToUpper(os.Args[1]) {
+	query := flag.Arg(0)
+	if flag.NArg() > 1 {
+		query = flag.Arg(1)
+		fmt.Println("Available:", flag.Arg(0))
+		for _, ch := range strings.ToUpper(flag.Arg(0)) {
 			available[byte(ch)]++
 		}
 	}
+	fmt.Println("Query:", query)
 
 	fmt.Print("Reading recognizer...")
 	mFile, err := os.Open("wordswithfriends.mealy")
@@ -377,7 +403,7 @@ func main() {
 		// Special case for beginning board - give us all available words.
 		for seq := range index.AllSequences() {
 			if isAvailable(seq, []bool{}) {
-				fmt.Println(SeqScore(seq), string(seq))
+				fmt.Println(SeqScore(seq, 8, 8), string(seq))
 			}
 		}
 		return
@@ -415,7 +441,7 @@ func main() {
 			if isAvailable(seq, subinfo.Draws[:len(seq)]) {
 				foundAny = true
 				word := strings.ToUpper(string(formatSeq(seq, left, len(allowedInfo.Constraints))))
-				fmt.Printf("% 3d  %v\n", SeqScore(seq), word)
+				fmt.Printf("% 3d  %v\n", SeqScore(seq, *Line, left+1), word)
 			}
 		}
 	}
