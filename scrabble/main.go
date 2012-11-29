@@ -18,6 +18,47 @@ type MatchedWord struct {
 	Needed map[string]int
 }
 
+var (
+	LetterScores = map[rune]int{
+		'A': 1, 'B': 3, 'C': 3, 'D': 2,
+		'E': 1, 'F': 4, 'G': 2, 'H': 4,
+		'I': 1, 'J': 8, 'K': 5, 'L': 1,
+		'M': 3, 'N': 1, 'O': 1, 'P': 3,
+		'Q': 10, 'R': 1, 'S': 1, 'T': 1,
+		'U': 1, 'V': 4, 'W': 4, 'X': 8,
+		'Y': 4, 'Z': 10,
+	}
+
+	LetterMultipliers = map[string]int{"$": 3, "#": 2}
+
+	WordMultipliers = map[string]int{"*": 3, "+": 2}
+
+	Board = []string{
+		"...*..$.$..*...",
+		"..#..+...+..#..",
+		".#..#.....#..#.",
+		"*..$...+...$..*",
+		"..#...#.#...#..",
+		".+...$...$...+.",
+		"$...#.....#...$",
+		"...+.......+...",
+		"$...#.....#...$",
+		".+...$...$...+.",
+		"..#...#.#...#..",
+		"*..$...+...$..*",
+		".#..#.....#..#.",
+		"...*..$.$..*...",
+	}
+)
+
+func SeqScore(seq []byte) int {
+	s := 0
+	for _, v := range seq {
+		s += LetterScores[rune(v)]
+	}
+	return s
+}
+
 // Parse a query string and return a list of constraint strings that can be used
 // to find valid words (assuming an unlimited supply of arbitrary letters).
 // Constraint strings are just letters or . for a wild. A constraint string
@@ -279,56 +320,20 @@ func GetSubConstraints(info AllowedInfo) <-chan Endpoints {
 
 func main() {
 	available := make(map[byte]int)
-	query := os.Args[1]
-	if len(os.Args) > 2 {
-		query = os.Args[2]
-		fmt.Println("Available:", os.Args[1])
-		for _, ch := range strings.ToUpper(os.Args[1]) {
-			available[byte(ch)]++
-		}
-	}
-	fmt.Println(available)
-
-	queryPieces := ParseQuery(query)
-	if len(queryPieces) == 0 {
-		fmt.Println("Query could not be parsed. Quitting.")
-		return
-	}
-
-	fmt.Print("Reading recognizer...")
-	mFile, err := os.Open("wordswithfriends.mealy")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer mFile.Close()
-	mealy, err := mealy.ReadFrom(mFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	index := Index{mealy}
-	fmt.Println("DONE")
-
-	formatSeq := func(word []byte, left, origSize int) []byte {
-		pieces := make([]byte, origSize)
-		for i := 0; i < left; i++ {
-			pieces[i] = '_'
-		}
-		for i, c := range word {
-			pieces[i+left] = c
-		}
-		for i := left + len(word); i < origSize; i++ {
-			pieces[i] = '_'
-		}
-		return pieces
-	}
-
 	isAvailable := func(seq []byte, draws []bool) bool {
 		if len(available) == 0 {
-			return true  // All are available if we didn't specify tiles
+			return true // All are available if we didn't specify tiles
+		}
+		// Special case for "anything".
+		if len(draws) == 0 {
+			draws = make([]bool, len(seq))
+			for i := 0; i < len(draws); i++ {
+				draws[i] = true;
+			}
 		}
 		// Copy availability
 		remaining := make(map[byte]int, len(available))
-		for k, v := range(available) {
+		for k, v := range available {
 			remaining[k] = v
 		}
 		for i, d := range draws {
@@ -346,6 +351,58 @@ func main() {
 		return true
 	}
 
+	query := os.Args[1]
+	if len(os.Args) > 2 {
+		query = os.Args[2]
+		fmt.Println("Available:", os.Args[1])
+		for _, ch := range strings.ToUpper(os.Args[1]) {
+			available[byte(ch)]++
+		}
+	}
+
+	fmt.Print("Reading recognizer...")
+	mFile, err := os.Open("wordswithfriends.mealy")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer mFile.Close()
+	mealy, err := mealy.ReadFrom(mFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	index := Index{mealy}
+	fmt.Println("DONE")
+
+	if len(query) == 0 && len(available) != 0 {
+		// Special case for beginning board - give us all available words.
+		for seq := range index.AllSequences() {
+			if isAvailable(seq, []bool{}) {
+				fmt.Println(SeqScore(seq), string(seq))
+			}
+		}
+		return
+	}
+
+	queryPieces := ParseQuery(query)
+	if len(queryPieces) == 0 {
+		fmt.Println("Query could not be parsed. Quitting.")
+		return
+	}
+
+	formatSeq := func(word []byte, left, origSize int) []byte {
+		pieces := make([]byte, origSize)
+		for i := 0; i < left; i++ {
+			pieces[i] = '_'
+		}
+		for i, c := range word {
+			pieces[i+left] = c
+		}
+		for i := left + len(word); i < origSize; i++ {
+			pieces[i] = '_'
+		}
+		return pieces
+	}
+
 	foundAny := false
 	allowedInfo := index.GetAllowedLetters(queryPieces)
 	for left := range GetSubSuffixes(allowedInfo) {
@@ -358,7 +415,7 @@ func main() {
 			if isAvailable(seq, subinfo.Draws[:len(seq)]) {
 				foundAny = true
 				word := strings.ToUpper(string(formatSeq(seq, left, len(allowedInfo.Constraints))))
-				fmt.Printf("  %v\n", word)
+				fmt.Printf("% 3d  %v\n", SeqScore(seq), word)
 			}
 		}
 	}
