@@ -45,13 +45,6 @@ var (
 		".+...$...$...+.",
 		"$...#.....#...$",
 		"...+.......+...",
-		"$...#.....#...$",
-		".+...$...$...+.",
-		"..#...#.#...#..",
-		"*..$...+...$..*",
-		".#..#.....#..#.",
-		"..#..+...+..#..",
-		"...*..$.$..*...",
 	}
 )
 
@@ -75,7 +68,7 @@ func SeqScore(seq []byte, line, pos int, draws []bool) int {
 		ls := LetterScores[rune(v)]
 		if line > 0 {
 			b := string(Board[line-1][p-1])
-			if draws[i] {  // multipliers only apply to placed tiles
+			if draws[i] { // multipliers only apply to placed tiles
 				wm := WordMultipliers[b]
 				lm := LetterMultipliers[b]
 				if wm > 0 {
@@ -197,10 +190,48 @@ func (idx Index) ValidMissingLetters(query string) (allLetters string) {
 	return strings.Join(ordered, "")
 }
 
+type UsedStack struct {
+	_stack *[]byte
+}
+
+func NewUsedStack() UsedStack {
+	return UsedStack{&[]byte{}}
+}
+func (u UsedStack) Push(val byte) {
+	*u._stack = append(*u._stack, val)
+}
+func (u UsedStack) Pop() (val byte) {
+	(*u._stack), val = (*u._stack)[:len(*u._stack)-1], (*u._stack)[len(*u._stack)-1]
+	return
+}
+func (u UsedStack) Len() int {
+	return len(*u._stack)
+}
+func (u UsedStack) String() string {
+	return fmt.Sprintf("%s", *u._stack)
+}
+
 type AllowedInfo struct {
 	mealy.BaseConstraints // inherit base constraint methods
 	Constraints           []string
 	Draws                 []bool
+	Available             map[byte]int
+	_used                 UsedStack
+}
+
+func NewAllowedInfo(constraints []string, draws []bool, available map[byte]int) AllowedInfo {
+	info := AllowedInfo{
+		Constraints: make([]string, len(constraints)),
+		Draws:       make([]bool, len(draws)),
+		Available:   make(map[byte]int, len(available)),
+		_used:       NewUsedStack(),
+	}
+	copy(info.Constraints, constraints)
+	copy(info.Draws, draws)
+	for k, v := range available {
+		info.Available[k] = v
+	}
+	return info
 }
 
 func (info AllowedInfo) AnchoredSubSequence(left, right int) bool {
@@ -219,14 +250,24 @@ func (info AllowedInfo) AnchoredSubSequence(left, right int) bool {
 	return num_draw > 0 && num_fixed > 0
 }
 func (info AllowedInfo) MakeSuffix(left int) AllowedInfo {
-	return AllowedInfo{
-		Constraints: info.Constraints[left:],
-		Draws:       info.Draws[left:],
-	}
+	return NewAllowedInfo(info.Constraints[left:], info.Draws[left:], info.Available)
 }
 func (info AllowedInfo) Possible() bool {
 	for _, x := range info.Constraints {
 		if strings.ContainsRune(x, '~') {
+			return false
+		}
+	}
+	return true
+}
+// Return false if the first non-wild is an impossible constraint.
+func (info AllowedInfo) PossiblePrefix() bool {
+	for i, d := range info.Draws {
+		if !d {
+			// A fixed value is OK
+			return true
+		}
+		if strings.ContainsRune(info.Constraints[i], '~') {
 			return false
 		}
 	}
@@ -252,7 +293,43 @@ func (info AllowedInfo) IsSmallEnough(size int) bool {
 	return size <= len(info.Constraints)
 }
 func (info AllowedInfo) IsValueAllowed(i int, val byte) bool {
-	return info.Constraints[i] == "." || strings.ContainsRune(info.Constraints[i], rune(val))
+	if !info.PossiblePrefix() {
+		return false
+	}
+	useAvailable := len(info.Available) + info._used.Len() > 0
+	// We have to manage the _used stack and Available map. When 'i' increases,
+	// we add to it, and when it decreases, we take away.
+	if useAvailable {
+		for info._used.Len() > i {
+			info.Available[info._used.Pop()]++
+		}
+		for info._used.Len() < i {
+			info._used.Push(byte('_'))
+		}
+	}
+	if !info.Draws[i] {
+		return info.Constraints[i] == string(val)
+	}
+	// It's a drawn tile, so we not only make sure that it's in our expectation
+	// set, we also make sure we actually have it.
+	if info.Constraints[i] == "~" {
+		return false
+	}
+	if info.Constraints[i] == "." || strings.ContainsRune(info.Constraints[i], rune(val)) {
+		if useAvailable {
+			use := byte(val)
+			if info.Available[use] == 0 {
+				use = '.'
+				if info.Available[use] == 0 {
+					return false
+				}
+			}
+			info.Available[use]--
+			info._used.Push(use)
+		}
+		return true
+	}
+	return false
 }
 func (info AllowedInfo) IsSequenceAllowed(seq []byte) bool {
 	// Size is okay if it is the whole thing, or if the value just beyond the
@@ -275,16 +352,17 @@ func (info AllowedInfo) IsSequenceAllowed(seq []byte) bool {
 // instances where a constrained wild has only one letter that can satisfy the
 // query. So, we also return a list of booleans indicating whether the tile at
 // that location is fixed (false) or drawable (true).
-func (idx Index) GetAllowedLetters(queryPieces []string) (info AllowedInfo) {
+func (idx Index) GetAllowedLetters(queryPieces []string, available map[byte]int) (info AllowedInfo) {
 	// Now for each entry, find a list of letters that can work. Note that
 	// we don't test for non-replacement, here. If there is a '.' in the
 	// group, we'll get all letters. That may need to be optimized later,
 	// but it doesn't seem super likely. The next pass, over actually
 	// discovered words, will eliminate things based on replaceability.
-	info = AllowedInfo{
-		Constraints: make([]string, len(queryPieces)),
-		Draws:       make([]bool, len(queryPieces)),
-	}
+	info = NewAllowedInfo(
+		make([]string, len(queryPieces)),
+		make([]bool, len(queryPieces)),
+		available,
+	)
 
 	for i, qp := range queryPieces {
 		info.Draws[i] = true
@@ -294,7 +372,7 @@ func (idx Index) GetAllowedLetters(queryPieces []string) (info AllowedInfo) {
 			if len(letters) == 0 {
 				letters = "~"
 			}
-			fmt.Println("Query:", qp, "\t[" + letters + "]")
+			fmt.Println("Query:", qp, "\t["+letters+"]")
 			qp = letters
 		} else if qp != "." {
 			info.Draws[i] = false
@@ -354,6 +432,9 @@ func GetSubConstraints(info AllowedInfo) <-chan Endpoints {
 
 func main() {
 	flag.Parse()
+	if *Line > 8 {
+		*Line = 16 - *Line
+	}
 	available := make(map[byte]int)
 	isAvailable := func(seq []byte, draws []bool) bool {
 		if len(available) == 0 {
@@ -363,7 +444,7 @@ func main() {
 		if len(draws) == 0 {
 			draws = make([]bool, len(seq))
 			for i := 0; i < len(draws); i++ {
-				draws[i] = true;
+				draws[i] = true
 			}
 		}
 		// Copy availability
@@ -440,13 +521,13 @@ func main() {
 	}
 
 	foundAny := false
-	allowedInfo := index.GetAllowedLetters(queryPieces)
+	allowedInfo := index.GetAllowedLetters(queryPieces, available)
 	for left := range GetSubSuffixes(allowedInfo) {
 		subinfo := allowedInfo.MakeSuffix(left)
-		fmt.Printf("Suff (%d) %v\n", left, subinfo)
-		if !subinfo.Possible() {
+		if !subinfo.PossiblePrefix() {
 			continue
 		}
+		fmt.Printf("Suff (%d) %v\n", left, subinfo)
 		for seq := range index.ConstrainedSequences(subinfo) {
 			if isAvailable(seq, subinfo.Draws[:len(seq)]) {
 				foundAny = true
