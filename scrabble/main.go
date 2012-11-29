@@ -254,7 +254,7 @@ func main() {
 	}
 
 	fmt.Print("Reading recognizer...")
-	mFile, err := os.Open("TWL06.mealy")
+	mFile, err := os.Open("wordswithfriends.mealy")
 	if err != nil {
 		log.Fatal(err)
 	}
