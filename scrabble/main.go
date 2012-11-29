@@ -73,8 +73,8 @@ func ParseQuery(query string) (constraints []string) {
 }
 
 type MissingLetterConstraint struct {
-	mealy.BaseConstraints  // Inherit base "always true" methods
-	Query string  // Strong supposition that strings are segmented at byte intervals
+	mealy.BaseConstraints        // Inherit base "always true" methods
+	Query                 string // Strong supposition that strings are segmented at byte intervals
 }
 
 func NewMissingLetterConstraint(query string) MissingLetterConstraint {
@@ -124,6 +124,71 @@ func (idx Index) ValidMissingLetters(query string) (allLetters string) {
 	return strings.Join(ordered, "")
 }
 
+type AllowedInfo struct {
+	mealy.BaseConstraints // inherit base constraint methods
+	Constraints           []string
+	Draws                 []bool
+}
+
+func (info AllowedInfo) AnchoredSubSequence(left, right int) bool {
+	num_draw := 0
+	num_fixed := 0
+	for x := left; x < right; x++ {
+		if info.Draws[x] {
+			num_draw++
+			if info.Constraints[x] != "." {
+				num_fixed++
+			}
+		} else {
+			num_fixed++
+		}
+	}
+	return num_draw > 0 && num_fixed > 0
+}
+func (info AllowedInfo) MakeSuffix(left int) AllowedInfo {
+	return AllowedInfo{
+		Constraints: info.Constraints[left:],
+		Draws:       info.Draws[left:],
+	}
+}
+func (info AllowedInfo) Possible() bool {
+	for _, x := range info.Constraints {
+		if strings.ContainsRune(x, '~') {
+			return false
+		}
+	}
+	return true
+}
+
+func (info AllowedInfo) String() string {
+	// Now actually search the word list for words that correspond to this,
+	// using a regular expression.
+	clauses := make([]string, len(info.Constraints))
+	for i, s := range info.Constraints {
+		if s == "." || !info.Draws[i] {
+			clauses[i] = s
+		} else {
+			clauses[i] = fmt.Sprintf("[%v]", s)
+		}
+	}
+	return strings.Join(clauses, "")
+}
+
+// Allow all valid prefixes of this sequence definition.
+func (info AllowedInfo) IsSmallEnough(size int) bool {
+	return size <= len(info.Constraints)
+}
+func (info AllowedInfo) IsValueAllowed(i int, val byte) bool {
+	return info.Constraints[i] == "." || strings.ContainsRune(info.Constraints[i], rune(val))
+}
+func (info AllowedInfo) IsSequenceAllowed(seq []byte) bool {
+	// Size is okay if it is the whole thing, or if the value just beyond the
+	// end is a draw. If the value just beyond the end is fixed, then this is
+	// not a valid sequence because it *must* have more on it to fit the board.
+	sizeGood := len(seq) == len(info.Constraints) || info.Draws[len(seq)]
+	return info.AnchoredSubSequence(0, len(seq)) && sizeGood
+}
+
 // Given a query string, produce the sequence of allowed letters (in a string).
 // This does not consider the stuff currently allowed in play, just what the
 // dictionary allows.
@@ -137,123 +202,50 @@ func (idx Index) ValidMissingLetters(query string) (allLetters string) {
 // instances where a constrained wild has only one letter that can satisfy the
 // query. So, we also return a list of booleans indicating whether the tile at
 // that location is fixed (false) or drawable (true).
-//
-// In total, we return
-//
-// (possible, boundLeft, boundRight, draws, allowedLetters)
-func (idx Index) GetAllowedLetters(queryPieces []string) (bool, bool, bool, []bool, []string) {
+func (idx Index) GetAllowedLetters(queryPieces []string) (info AllowedInfo) {
 	// Now for each entry, find a list of letters that can work. Note that
 	// we don't test for non-replacement, here. If there is a '.' in the
 	// group, we'll get all letters. That may need to be optimized later,
 	// but it doesn't seem super likely. The next pass, over actually
 	// discovered words, will eliminate things based on replaceability.
-	allowed := make([]string, 0, len(queryPieces))
-	draws := make([]bool, 0, len(queryPieces))
-	possible := true
-	boundLeft := false
-	boundRight := false
+	info = AllowedInfo{
+		Constraints: make([]string, len(queryPieces)),
+		Draws:       make([]bool, len(queryPieces)),
+	}
+
 	for i, qp := range queryPieces {
-		switch {
-		case qp == "|":
-			if i == 0 {
-				boundLeft = true
-			} else {
-				boundRight = true
+		info.Draws[i] = true
+		if len(qp) > 1 {
+			// Partial constraint (missing letter).
+			qp = idx.ValidMissingLetters(qp)
+			if len(qp) == 0 {
+				qp = "~"
 			}
-		case qp == ".":
-			draws = append(draws, true)
-			allowed = append(allowed, qp)
-		case len(qp) == 1:
-			draws = append(draws, false)
-			allowed = append(allowed, qp)
-		default:
-			found := idx.ValidMissingLetters(qp)
-			if len(found) == 0 {
-				found = "~"
-				possible = false
-			}
-			draws = append(draws, true)
-			allowed = append(allowed, found)
+		} else if qp != "." {
+			info.Draws[i] = false
 		}
+		info.Constraints[i] = qp
 	}
-	return possible, boundLeft, boundRight, draws, allowed
+	return
 }
 
-func MakeRegexp(boundLeft, boundRight bool, draws []bool, allowed []string) (*regexp.Regexp, error) {
-	// Now actually search the word list for words that correspond to this,
-	// using a regular expression.
-	size := len(allowed)
-	if boundLeft {
-		size++
-	}
-	if boundRight {
-		size++
-	}
-	clauses := make([]string, size)
-	offset := 0
-	if boundLeft {
-		clauses[0] = "^"
-		offset = 1
-	}
-	if boundRight {
-		clauses[len(clauses) - 1] = "$"
-	}
-	for i, s := range allowed {
-		if s == "." || !draws[i] {
-			clauses[i + offset] = s
-		} else {
-			clauses[i + offset] = fmt.Sprintf("[%v]", s)
-		}
-	}
-	clauseStr := strings.Join(clauses, "")
-	allowedExp, err := regexp.Compile(clauseStr)
-	if err != nil {
-		fmt.Printf("Failed to parse expression %v\n", clauseStr)
-	}
-	return allowedExp, err
-}
-
-type endpoints struct {
-	left,
+type Endpoints struct {
+	left  int
 	right int
 }
 
-func GetSubConstraints(draws []bool, allowed []string) (<-chan endpoints) {
-	out := make(chan endpoints)
-	emit := func(left, right int) {
-		num_draw := 0
-		num_fixed := 0
-		for x := left; x < right; x++ {
-			if draws[x] {
-				num_draw++
-				// Partial constraints count as fixed points, too.
-				if allowed[x] != "." {
-					num_fixed++
-				}
-			} else {
-				num_fixed++
-			}
-		}
-		if num_draw > 0 && num_fixed > 0 {
-			out <- endpoint{ left, right }
+func GetSubSuffixes(info AllowedInfo) <-chan int {
+	out := make(chan int)
+	emit := func(left int) {
+		if info.AnchoredSubSequence(left, len(info.Draws)) {
+			out <- left
 		}
 	}
 	go func() {
 		defer close(out)
-		for left := 0; left < len(allowed); left++ {
-			right := len(allowed)
-			emit(left, right)
-			for right := left + 1; right < len(allowed); right++ {
-				// We can't peel off a fixed tile - it must form part of the word.
-				if !draws[right] {
-					continue
-				}
-				emit(left, right)
-			}
-			// If "left" is a non-draw index (fixed position), then we advance
-			// until it isn't anymore. Otherwise, it's fine to just peel this
-			// off (you can always peel off a draw on the left side.
-			for left < len(allowed) && !draws[left] {
+		for left := 0; left < len(info.Constraints); left++ {
+			emit(left)
+			for left < len(info.Constraints) && !info.Draws[left] {
 				left++
 			}
 		}
@@ -261,17 +253,41 @@ func GetSubConstraints(draws []bool, allowed []string) (<-chan endpoints) {
 	return out
 }
 
+func GetSubConstraints(info AllowedInfo) <-chan Endpoints {
+	out := make(chan Endpoints)
+	emit := func(left, right int) {
+		if info.AnchoredSubSequence(left, right) {
+			out <- Endpoints{left, right}
+		}
+	}
+	go func() {
+		defer close(out)
+		for left := range GetSubSuffixes(info) {
+			emit(left, len(info.Constraints))
+			for right := left + 1; right < len(info.Constraints); right++ {
+				// We can't peel off a fixed tile - it must form part of the
+				// word.
+				if !info.Draws[right] {
+					continue
+				}
+				emit(left, right)
+			}
+		}
+	}()
+	return out
+}
 
 func main() {
-	available := make(map[string]int)
+	available := make(map[byte]int)
 	query := os.Args[1]
 	if len(os.Args) > 2 {
 		query = os.Args[2]
-		for _, ch := range strings.Split(os.Args[1], "") {
-			ch = strings.ToUpper(ch)
-			available[ch]++
+		fmt.Println("Available:", os.Args[1])
+		for _, ch := range strings.ToUpper(os.Args[1]) {
+			available[byte(ch)]++
 		}
 	}
+	fmt.Println(available)
 
 	queryPieces := ParseQuery(query)
 	if len(queryPieces) == 0 {
@@ -292,103 +308,61 @@ func main() {
 	index := Index{mealy}
 	fmt.Println("DONE")
 
-	possible, boundLeft, boundRight, draws, allowed := index.GetAllowedLetters(queryPieces)
-	if !possible {
-		fmt.Printf("Impossible because of nearby letter constraints at '~': %v.\n", allowed)
-		return
+	formatSeq := func(word []byte, left, origSize int) []byte {
+		pieces := make([]byte, origSize)
+		for i := 0; i < left; i++ {
+			pieces[i] = '_'
+		}
+		for i, c := range word {
+			pieces[i+left] = c
+		}
+		for i := left + len(word); i < origSize; i++ {
+			pieces[i] = '_'
+		}
+		return pieces
 	}
 
-	for suballowed := range GetSubConstraints(draws, allowed) {
-		fmt.Println("Sub", suballowed)
+	isAvailable := func(seq []byte, draws []bool) bool {
+		if len(available) == 0 {
+			return true  // All are available if we didn't specify tiles
+		}
+		// Copy availability
+		remaining := make(map[byte]int, len(available))
+		for k, v := range(available) {
+			remaining[k] = v
+		}
+		for i, d := range draws {
+			if d {
+				c := seq[i]
+				if remaining[c] == 0 {
+					c = byte('.')
+					if remaining[c] == 0 {
+						return false
+					}
+				}
+				remaining[c]--
+			}
+		}
+		return true
 	}
 
-	allowedExp, err := MakeRegexp(boundLeft, boundRight, draws, allowed)
-	if err != nil {
-		fmt.Printf("Error getting regular expresison for %v", allowed)
-		return
-	}
-	fmt.Printf("Match Expression: %v\n", allowedExp)
-
-	matchedWords := []MatchedWord{}
-	// TODO: Note the "AllSequences" call here? That's not a good plan.
-	// Instead, we should construct a series of constraints that will work, and
-	// try them all in turn.
-	for seq := range index.AllSequences() {
-		word := strings.ToUpper(string(seq))
-		loc := allowedExp.FindStringIndex(word)
-		if loc == nil {
+	foundAny := false
+	allowedInfo := index.GetAllowedLetters(queryPieces)
+	for left := range GetSubSuffixes(allowedInfo) {
+		subinfo := allowedInfo.MakeSuffix(left)
+		fmt.Printf("Sub (%d) %v\n", left, subinfo)
+		if !subinfo.Possible() {
 			continue
 		}
-		// Figure out a comprehensive list of needed letters from the
-		// prefix, suffix, and draw indices.
-		m := MatchedWord{
-			Word:   word,
-			Match:  word[loc[0]:loc[1]],
-			Prefix: word[:loc[0]],
-			Suffix: word[loc[1]:],
-		}
-		needed := make(map[string]int, len(draws))
-		for ci, ch := range m.Match {
-			if draws[ci] {
-				needed[string(ch)]++
+		for seq := range index.ConstrainedSequences(subinfo) {
+			if isAvailable(seq, subinfo.Draws[:len(seq)]) {
+				foundAny = true
+				word := strings.ToUpper(string(formatSeq(seq, left, len(allowedInfo.Constraints))))
+				fmt.Printf("  %v\n", word)
 			}
 		}
-		for _, ch := range m.Prefix {
-			needed[string(ch)]++
-		}
-		for _, ch := range m.Suffix {
-			needed[string(ch)]++
-		}
-		m.Needed = needed
-
-		matchedWords = append(matchedWords, m)
 	}
-	if len(matchedWords) == 0 {
-		fmt.Println("No words matched.")
-		return
-	}
-
-	// Now we try to assign from our pool of possible letters, to each of
-	// the not-fully-constrained bits in our words, skipping over the
-	// endpoint notifiers. The draws indicate which entries are used
-	// to draw from our available letters.
-
-	if len(available) == 0 {
-		for _, w := range matchedWords {
-			fmt.Println(w)
-		}
-		return
-	}
-
-	// We have a limited supply - use only what we have, favoring specific
-	// letters over blank tiles first.
-	workingWords := make([]MatchedWord, 0)
-	for _, w := range matchedWords {
-		left := make(map[string]int, len(available))
-		for k, v := range available {
-			left[k] = v
-		}
-		works := true
-		for letter, needed := range w.Needed {
-			remaining := left[letter] - needed
-			if remaining < 0 {
-				left["."] += remaining
-				if left["."] < 0 {
-					// We ran out of letters and blanks
-					works = false
-					break
-				}
-			}
-		}
-		if works {
-			workingWords = append(workingWords, w)
-		}
-	}
-	if len(workingWords) == 0 {
-		fmt.Println("No words worked with your available tiles.")
-		return
-	}
-	for _, w := range workingWords {
-		fmt.Println(w.Word)
+	if !foundAny {
+		fmt.Println("No possible words found")
 	}
 }
