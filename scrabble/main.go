@@ -26,7 +26,7 @@ var (
 		'A': 1, 'B': 3, 'C': 3, 'D': 2,
 		'E': 1, 'F': 4, 'G': 2, 'H': 4,
 		'I': 1, 'J': 8, 'K': 5, 'L': 1,
-		'M': 3, 'N': 1, 'O': 1, 'P': 3,
+		'M': 3, 'N': 2, 'O': 1, 'P': 3,
 		'Q': 10, 'R': 1, 'S': 1, 'T': 1,
 		'U': 1, 'V': 4, 'W': 4, 'X': 8,
 		'Y': 4, 'Z': 10,
@@ -58,9 +58,16 @@ var (
 // An imperfect score for a sequence. If line is 0, just score the letters,
 // otherwise try to figure it out based on the board (1-based line count).
 // TODO: Add in information about intersecting words.
+// TODO: Don't score fixed letters (they don't get extra scores).
 
 // line and pos are both *1-based*.
-func SeqScore(seq []byte, line, pos int) int {
+func SeqScore(seq []byte, line, pos int, draws []bool) int {
+	if len(draws) == 0 {
+		draws = make([]bool, len(seq))
+		for i := 0; i < len(draws); i++ {
+			draws[i] = true
+		}
+	}
 	s := 0
 	wordMultiplier := 1
 	for i, v := range seq {
@@ -68,13 +75,15 @@ func SeqScore(seq []byte, line, pos int) int {
 		ls := LetterScores[rune(v)]
 		if line > 0 {
 			b := string(Board[line-1][p-1])
-			wm := WordMultipliers[b]
-			lm := LetterMultipliers[b]
-			if wm > 0 {
-				wordMultiplier *= wm
-			}
-			if lm > 0 {
-				ls *= lm
+			if draws[i] {  // multipliers only apply to placed tiles
+				wm := WordMultipliers[b]
+				lm := LetterMultipliers[b]
+				if wm > 0 {
+					wordMultiplier *= wm
+				}
+				if lm > 0 {
+					ls *= lm
+				}
 			}
 		}
 		s += ls
@@ -175,7 +184,6 @@ func (idx Index) ValidMissingLetters(query string) (allLetters string) {
 	if strings.Count(query, ".") != 1 {
 		log.Fatalf("Invalid missing-letter query - should have exactly one '.': %s", query)
 	}
-	fmt.Println("Query:", query)
 	pos := strings.IndexRune(query, '.')
 	letters := map[string]bool{}
 	for _, w := range idx.ValidWords(query) {
@@ -282,10 +290,12 @@ func (idx Index) GetAllowedLetters(queryPieces []string) (info AllowedInfo) {
 		info.Draws[i] = true
 		if len(qp) > 1 {
 			// Partial constraint (missing letter).
-			qp = idx.ValidMissingLetters(qp)
-			if len(qp) == 0 {
-				qp = "~"
+			letters := idx.ValidMissingLetters(qp)
+			if len(letters) == 0 {
+				letters = "~"
 			}
+			fmt.Println("Query:", qp, "\t[" + letters + "]")
+			qp = letters
 		} else if qp != "." {
 			info.Draws[i] = false
 		}
@@ -403,7 +413,7 @@ func main() {
 		// Special case for beginning board - give us all available words.
 		for seq := range index.AllSequences() {
 			if isAvailable(seq, []bool{}) {
-				fmt.Println(SeqScore(seq, 8, 8), string(seq))
+				fmt.Println(SeqScore(seq, 8, 8, []bool{}), string(seq))
 			}
 		}
 		return
@@ -433,7 +443,7 @@ func main() {
 	allowedInfo := index.GetAllowedLetters(queryPieces)
 	for left := range GetSubSuffixes(allowedInfo) {
 		subinfo := allowedInfo.MakeSuffix(left)
-		fmt.Printf("Sub (%d) %v\n", left, subinfo)
+		fmt.Printf("Suff (%d) %v\n", left, subinfo)
 		if !subinfo.Possible() {
 			continue
 		}
@@ -441,7 +451,7 @@ func main() {
 			if isAvailable(seq, subinfo.Draws[:len(seq)]) {
 				foundAny = true
 				word := strings.ToUpper(string(formatSeq(seq, left, len(allowedInfo.Constraints))))
-				fmt.Printf("% 3d  %v\n", SeqScore(seq, *Line, left+1), word)
+				fmt.Printf("% 3d  %v\n", SeqScore(seq, *Line, left+1, subinfo.Draws[:len(seq)]), word)
 			}
 		}
 	}
