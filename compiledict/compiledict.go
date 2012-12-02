@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -10,6 +11,14 @@ import (
 	"os"
 	"strings"
 )
+
+var (
+	noWrite bool
+)
+
+func init() {
+	flag.BoolVar(&noWrite, "nowrite", false, "Set to just display stats.")
+}
 
 func TextFileToChannel(inName string) <-chan string {
 	words := make(chan string)
@@ -100,9 +109,19 @@ func StringFromByteChannel(source <-chan []byte) <-chan string {
 	return out
 }
 
+func BitsNeeded(val int) int {
+	needed := 0
+	for ; val > 0; needed++ {
+		val >>= 1
+	}
+	return needed
+}
+
 func main() {
-	inName := os.Args[1]
-	outName := os.Args[2]
+	flag.Parse()
+
+	inName := flag.Arg(0)
+	outName := flag.Arg(1)
 
 	fmt.Printf("Reading file '%s'...\n", inName)
 	machine := mealy.FromChannel(
@@ -121,21 +140,41 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("Writing serialized machine to '%s'...\n", outName)
-	WriteMealy(outName, machine)
+	fmt.Println("Statistics for compiled machine:")
+	fmt.Printf("  Number of states: %d (%x) (%d bits)\n", len(machine), len(machine), BitsNeeded(len(machine)))
+	unique := machine.UniqueTransitions()
+	fmt.Printf("  Number of unique transitions: %d (%x) (%d bits)\n", unique, unique, BitsNeeded(unique))
+	numTransitions := machine.TotalTransitions()
+	fmt.Printf("  Total transitions: %d\n", numTransitions)
+	maxTransitions := machine.MaxStateTransitions()
+	fmt.Printf("  Max transitions per state: %d (%x) (%d bits)\n", maxTransitions, maxTransitions, BitsNeeded(maxTransitions))
+	allTriggers := machine.AllTriggers()
+	fmt.Printf("  Number of trigger values: %d (%x) (%d bits)\n", len(allTriggers), len(allTriggers), BitsNeeded(len(allTriggers)))
 
-	fmt.Printf("Reading serialized mcahine from '%s'...\n", outName)
-	writtenMachine := ReadMealy(outName)
+	fmt.Println("  Triggers:")
+	for _, trigger := range allTriggers {
+		fmt.Printf("    %08x\n", trigger)
+	}
 
-	fmt.Print("Comparing built machine to deserialized version...")
-	equal, err = AreChannelsEqual(
-		StringFromByteChannel(machine.AllSequences()),
-		StringFromByteChannel(writtenMachine.AllSequences()))
-	switch {
-	case equal:
-		fmt.Println("  EQUAL")
-	default:
-		fmt.Println("  NOT EQUAL:\n  ", err)
-		log.Fatal(err)
+	if noWrite {
+		fmt.Println("Not writing because of flag.")
+	} else {
+		fmt.Printf("Writing serialized machine to '%s'...\n", outName)
+		WriteMealy(outName, machine)
+
+		fmt.Printf("Reading serialized mcahine from '%s'...\n", outName)
+		writtenMachine := ReadMealy(outName)
+
+		fmt.Print("Comparing built machine to deserialized version...")
+		equal, err = AreChannelsEqual(
+			StringFromByteChannel(machine.AllSequences()),
+			StringFromByteChannel(writtenMachine.AllSequences()))
+		switch {
+		case equal:
+			fmt.Println("  EQUAL")
+		default:
+			fmt.Println("  NOT EQUAL:\n  ", err)
+			log.Fatal(err)
+		}
 	}
 }

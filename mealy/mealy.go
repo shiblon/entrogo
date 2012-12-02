@@ -10,6 +10,7 @@ package mealy
 import (
 	"bytes"
 	"fmt"
+	"sort"
 )
 
 type MealyMachine []state
@@ -95,6 +96,55 @@ func (m MealyMachine) String() string {
 
 func (m MealyMachine) Start() state {
 	return m[len(m)-1]
+}
+
+func (m MealyMachine) TotalTransitions() int {
+	num := 0
+	for _, state := range m {
+		num += len(state)
+	}
+	return num
+}
+
+func (m MealyMachine) UniqueTransitions() int {
+	unique := make(map[transition]int)
+	for _, state := range m {
+		for _, transition := range state {
+			unique[transition]++
+		}
+	}
+	return len(unique)
+}
+
+func (m MealyMachine) MaxStateTransitions() int {
+	max := 0
+	for _, state := range m {
+		n := state.Len()
+		if max < n {
+			max = n
+		}
+	}
+	return max
+}
+
+// Return a sorted slice of all byte values that trigger a transition anywhere.
+func (m MealyMachine) AllTriggers() []byte {
+	triggerMap := make(map[int]bool)
+	for _, state := range m {
+		for _, transition := range state {
+			triggerMap[int(transition.Trigger())] = true
+		}
+	}
+	triggers := make([]int, 0, len(triggerMap))
+	for k, _ := range triggerMap {
+		triggers = append(triggers, k)
+	}
+	sort.Ints(triggers)
+	byteTriggers := make([]byte, len(triggers))
+	for i, t := range triggers {
+		byteTriggers[i] = byte(t)
+	}
+	return byteTriggers
 }
 
 func (m MealyMachine) Recognizes(value []byte) bool {
