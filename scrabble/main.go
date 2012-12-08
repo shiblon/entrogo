@@ -11,14 +11,6 @@ import (
 	"strings"
 )
 
-type MatchedWord struct {
-	Word   string
-	Match  string
-	Prefix string
-	Suffix string
-	Needed map[string]int
-}
-
 var (
 	Line = flag.Int("line", 0, "Row or column for this request - helps with scoring - 0 to skip.")
 
@@ -430,6 +422,21 @@ func GetSubConstraints(info AllowedInfo) <-chan Endpoints {
 	return out
 }
 
+func FormatSeq(word []byte, left, origSize int) []byte {
+	pieces := make([]byte, origSize)
+	for i := 0; i < left; i++ {
+		pieces[i] = '_'
+	}
+	for i, c := range word {
+		pieces[i+left] = c
+	}
+	for i := left + len(word); i < origSize; i++ {
+		pieces[i] = '_'
+	}
+	return pieces
+}
+
+
 func main() {
 	flag.Parse()
 	if *Line > 8 {
@@ -504,20 +511,6 @@ func main() {
 	if len(queryPieces) == 0 {
 		fmt.Println("Query could not be parsed. Quitting.")
 		return
-	}
-
-	formatSeq := func(word []byte, left, origSize int) []byte {
-		pieces := make([]byte, origSize)
-		for i := 0; i < left; i++ {
-			pieces[i] = '_'
-		}
-		for i, c := range word {
-			pieces[i+left] = c
-		}
-		for i := left + len(word); i < origSize; i++ {
-			pieces[i] = '_'
-		}
-		return pieces
 	}
 
 	foundAny := false
