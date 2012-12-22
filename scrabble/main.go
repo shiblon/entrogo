@@ -524,7 +524,7 @@ func main() {
 		for seq := range index.ConstrainedSequences(subinfo) {
 			if isAvailable(seq, subinfo.Draws[:len(seq)]) {
 				foundAny = true
-				word := strings.ToUpper(string(formatSeq(seq, left, len(allowedInfo.Constraints))))
+				word := strings.ToUpper(string(FormatSeq(seq, left, len(allowedInfo.Constraints))))
 				fmt.Printf("% 3d  %v\n", SeqScore(seq, *Line, left+1, subinfo.Draws[:len(seq)]), word)
 			}
 		}
