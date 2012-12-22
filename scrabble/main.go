@@ -252,6 +252,7 @@ func (info AllowedInfo) Possible() bool {
 	}
 	return true
 }
+
 // Return false if the first non-wild is an impossible constraint.
 func (info AllowedInfo) PossiblePrefix() bool {
 	for i, d := range info.Draws {
@@ -288,7 +289,7 @@ func (info AllowedInfo) IsValueAllowed(i int, val byte) bool {
 	if !info.PossiblePrefix() {
 		return false
 	}
-	useAvailable := len(info.Available) + info._used.Len() > 0
+	useAvailable := len(info.Available)+info._used.Len() > 0
 	// We have to manage the _used stack and Available map. When 'i' increases,
 	// we add to it, and when it decreases, we take away.
 	if useAvailable {
@@ -435,7 +436,6 @@ func FormatSeq(word []byte, left, origSize int) []byte {
 	}
 	return pieces
 }
-
 
 func main() {
 	flag.Parse()

@@ -4,8 +4,7 @@ import (
 	"testing"
 )
 
-const testString = (
-	"...............\n" +
+const testString = ("...............\n" +
 	"...... ..... ....  " +
 	"..............." +
 	"..............." +
@@ -53,15 +52,16 @@ func TestPositionQueries(t *testing.T) {
 	board := NewFromString(testString)
 
 	testf := func(row, col int, rquery, cquery string) {
-		if rq, cq := board.PositionQueries(row, col); rq != rquery && cq != cquery {
+		info := board.PositionInfo(row, col)
+		if rq, cq := info.RowQuery, info.ColQuery; rq != rquery && cq != cquery {
 			t.Errorf("Unexpected value at %v,%v: %v, %v", row, col, rq, cq)
 		}
 	}
 
 	testf(6, 1, ".", ".")
-	testf(6, 2, "<.A>", ".")
-	testf(6, 4, "<.CA>", ".")
-	testf(7, 5, "<.B>", "<ABC.RT>")
+	testf(6, 2, ".A", ".")
+	testf(6, 4, ".CA", ".")
+	testf(7, 5, ".B", "ABC.RT")
 	testf(7, 10, "X", "X")
 }
 
