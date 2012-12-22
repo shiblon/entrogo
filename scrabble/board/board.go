@@ -1,5 +1,8 @@
 package board
 
+// TODO:
+// Add case-sensitivity to allow blank tiles to be specified.
+
 import (
 	"fmt"
 	"regexp"
@@ -278,7 +281,7 @@ func (board Board) ScorePlacement(
 	return thisScore
 }
 
-// Score a placement of tiles for the given row, starting at the given column.
+// Score a placement of tiles for the given row, starting at the startColumn.
 // A _ means "blank tile" (and therefore won't get scored).
 // Fixed values can be specified as " " or as the actual fixed value.
 func (board Board) ScoreRowPlacement(row, startCol int, placement string) int {

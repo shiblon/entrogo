@@ -13,12 +13,12 @@ import (
 	"sort"
 )
 
-type MealyMachine []state
+type Recognizer []state
 
 // Builds a new mealy machine from an ordered list of values. Keeps working
 // until the channel is closed, at which point it finalizes and returns.
-func FromChannel(values <-chan []byte) MealyMachine {
-	m := MealyMachine{}
+func FromChannel(values <-chan []byte) Recognizer {
+	self := Recognizer{}
 
 	states := make(map[string]int)
 	terminals := []bool{false}
@@ -32,8 +32,8 @@ func FromChannel(values <-chan []byte) MealyMachine {
 		fprint := s.Fingerprint()
 		var ok bool
 		if id, ok = states[fprint]; !ok {
-			id = len(m)
-			m = append(m, s)
+			id = len(self)
+			self = append(self, s)
 			states[fprint] = id
 		}
 		return
@@ -80,35 +80,35 @@ func FromChannel(values <-chan []byte) MealyMachine {
 
 	// Finish up by making all remaining states, then create a start state.
 	makeSuffixStates(0)
-	if startId := makeState(larvae[0]); startId != len(m) - 1 {
+	if startId := makeState(larvae[0]); startId != len(self) - 1 {
 		panic(fmt.Sprintf(
 			"Unexpected start ID, not at the end: %v < %v",
-			startId, len(m) - 1))
+			startId, len(self) - 1))
 	}
 
 	// Start state is at len - 1; final state is at 0.
-	return m
+	return self
 }
 
-func (m MealyMachine) String() string {
-	return fmt.Sprintf("%v", []state(m))
+func (self Recognizer) String() string {
+	return fmt.Sprintf("%v", []state(self))
 }
 
-func (m MealyMachine) Start() state {
-	return m[len(m)-1]
+func (self Recognizer) Start() state {
+	return self[len(self)-1]
 }
 
-func (m MealyMachine) TotalTransitions() int {
+func (self Recognizer) TotalTransitions() int {
 	num := 0
-	for _, state := range m {
+	for _, state := range self {
 		num += len(state)
 	}
 	return num
 }
 
-func (m MealyMachine) UniqueTransitions() int {
+func (self Recognizer) UniqueTransitions() int {
 	unique := make(map[transition]int)
-	for _, state := range m {
+	for _, state := range self {
 		for _, transition := range state {
 			unique[transition]++
 		}
@@ -116,9 +116,9 @@ func (m MealyMachine) UniqueTransitions() int {
 	return len(unique)
 }
 
-func (m MealyMachine) MaxStateTransitions() int {
+func (self Recognizer) MaxStateTransitions() int {
 	max := 0
-	for _, state := range m {
+	for _, state := range self {
 		n := state.Len()
 		if max < n {
 			max = n
@@ -128,9 +128,9 @@ func (m MealyMachine) MaxStateTransitions() int {
 }
 
 // Return a sorted slice of all byte values that trigger a transition anywhere.
-func (m MealyMachine) AllTriggers() []byte {
+func (self Recognizer) AllTriggers() []byte {
 	triggerMap := make(map[int]bool)
-	for _, state := range m {
+	for _, state := range self {
 		for _, transition := range state {
 			triggerMap[int(transition.Trigger())] = true
 		}
@@ -147,18 +147,18 @@ func (m MealyMachine) AllTriggers() []byte {
 	return byteTriggers
 }
 
-func (m MealyMachine) Recognizes(value []byte) bool {
-	if len(m) == 0 {
+func (self Recognizer) Recognizes(value []byte) bool {
+	if len(self) == 0 {
 		return false
 	}
 
 	var tran transition
 
-	state := m.Start()
+	state := self.Start()
 	for _, v := range value {
 		if found := state.IndexForTrigger(v); found < len(state) {
 			tran = state[found]
-			state = m[tran.ToState()]
+			state = self[tran.ToState()]
 		} else {
 			break
 		}
@@ -207,7 +207,7 @@ func (p *pathNode) AdvanceUntilAllowed(allowed func(byte) bool) {
 // implemented as a filter on the output, but size and allowed-value
 // constraints can be very helpful in reducing the amount of work done by the
 // machine to generate sequences.
-func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
+func (self *Recognizer) ConstrainedSequences(con Constraints) <-chan []byte {
 	out := make(chan []byte)
 
 	// Advance the last element of the node path, taking constraints into
@@ -254,7 +254,7 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 
 	go func() {
 		defer close(out)
-		path := []pathNode{pathNode{m.Start(), 0}}
+		path := []pathNode{pathNode{self.Start(), 0}}
 		advanceLastUntilAllowed(path) // Needed for node initialization
 
 		for path = popExhausted(path); len(path) > 0; path = popExhausted(path) {
@@ -265,7 +265,7 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 					out <- b
 				}
 			}
-			nextState := (*m)[curTransition.ToState()]
+			nextState := (*self)[curTransition.ToState()]
 			if !nextState.IsEmpty() && con.IsSmallEnough(len(path) + 1) {
 				node := pathNode{nextState, 0}
 				path = append(path, node)
@@ -284,6 +284,6 @@ func (m *MealyMachine) ConstrainedSequences(con Constraints) <-chan []byte {
 // in "for range" constructs.
 //
 // This is an alias for ConstrainedSequences(BaseConstraints{}).
-func (m *MealyMachine) AllSequences() (out <-chan []byte) {
-	return m.ConstrainedSequences(BaseConstraints{})
+func (self *Recognizer) AllSequences() (out <-chan []byte) {
+	return self.ConstrainedSequences(BaseConstraints{})
 }

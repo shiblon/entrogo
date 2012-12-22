@@ -9,16 +9,16 @@ import (
 const serializationPrefix = "MMeMv1"
 
 // Serialize the Mealy machine to a Writer.
-func (m MealyMachine) WriteTo(w io.Writer) (err error) {
+func (self Recognizer) WriteTo(w io.Writer) (err error) {
 	if err = binary.Write(w, binary.BigEndian, []byte(serializationPrefix)); err != nil {
 		return
 	}
 
-	if err = binary.Write(w, binary.BigEndian, int32(len(m))); err != nil {
+	if err = binary.Write(w, binary.BigEndian, int32(len(self))); err != nil {
 		return
 	}
 
-	for _, s := range m {
+	for _, s := range self {
 		if err = binary.Write(w, binary.BigEndian, byte(len(s))); err != nil {
 			break
 		}
@@ -30,7 +30,7 @@ func (m MealyMachine) WriteTo(w io.Writer) (err error) {
 }
 
 // Deserialize the Mealy machine from a Reader.
-func ReadFrom(r io.Reader) (m MealyMachine, err error) {
+func ReadFrom(r io.Reader) (self Recognizer, err error) {
 	// Read version string, then all states in order (each is a slice over
 	// uint32).
 	versionString := make([]byte, len(serializationPrefix))
@@ -43,7 +43,7 @@ func ReadFrom(r io.Reader) (m MealyMachine, err error) {
 		return
 	}
 
-	m = make(MealyMachine, numStates)
+	self = make(Recognizer, numStates)
 	for i := 0; i < int(numStates); i++ {
 		var numTransitions byte
 		if err = binary.Read(r, binary.BigEndian, &numTransitions); err != nil {
@@ -57,7 +57,7 @@ func ReadFrom(r io.Reader) (m MealyMachine, err error) {
 			}
 			st[t] = tr
 		}
-		m[i] = st
+		self[i] = st
 	}
 	return
 }
