@@ -54,10 +54,6 @@ func MultipliersAt(row, col int) (letter, word int) {
 	return
 }
 
-type Board struct {
-	config []rune
-}
-
 type PositionInfo struct {
 	Row, Col int
 
@@ -73,6 +69,12 @@ type PositionInfo struct {
 	// The position score is the score of the letter at this position, if there
 	// is one.
 	PosScore, RowScore, ColScore int
+}
+
+type Board struct {
+	config []rune
+	// Cached info lists.
+	positionInfoCache [15*15]*PositionInfo
 }
 
 // Create a new empty scrabble board, with 15x15 spaces and no constraints.
@@ -123,7 +125,12 @@ func (board Board) String() string {
 // col-wise means "we're trying to lay down a column).
 func (board Board) PositionInfo(row, col int) PositionInfo {
 	atPos := board.config[row*15+col]
-	info := PositionInfo{
+
+	var info *PositionInfo
+	if idx := row*15 + col; board.positionInfoCache[idx] != nil {
+		return *board.positionInfoCache[idx]
+	}
+	info = &PositionInfo{
 		Row:      row,
 		Col:      col,
 		RowQuery: string(atPos),
@@ -184,7 +191,8 @@ func (board Board) PositionInfo(row, col int) PositionInfo {
 			}
 		}
 	}
-	return info
+	board.positionInfoCache[row*15+col] = info
+	return *info
 }
 
 // Return a row query for the given row. Includes constraints from adjacent
