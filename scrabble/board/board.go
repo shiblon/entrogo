@@ -8,24 +8,24 @@ import (
 
 var (
 	spacesRegexp      *regexp.Regexp
-	wordMultipliers   = map[string]int{"*": 3, "+": 2}
-	letterMultipliers = map[string]int{"$": 3, "#": 2}
-	specials          = []string{
-		"...*..$.$..*...",
-		"..#..+...+..#..",
-		".#..#.....#..#.",
-		"*..$...+...$..*",
-		"..#...#.#...#..",
-		".+...$...$...+.",
-		"$...#.....#...$",
-		"...+.......+...",
-		"$...#.....#...$",
-		".+...$...$...+.",
-		"..#...#.#...#..",
-		"*..$...+...$..*",
-		".#..#.....#..#.",
-		"..#..+...+..#..",
-		"...*..$.$..*...",
+	wordMultipliers   = map[rune]int{'*': 3, '+': 2}
+	letterMultipliers = map[rune]int{'$': 3, '#': 2}
+	specials          = [][]rune{
+		[]rune("...*..$.$..*..."),
+		[]rune("..#..+...+..#.."),
+		[]rune(".#..#.....#..#."),
+		[]rune("*..$...+...$..*"),
+		[]rune("..#...#.#...#.."),
+		[]rune(".+...$...$...+."),
+		[]rune("$...#.....#...$"),
+		[]rune("...+.......+..."),
+		[]rune("$...#.....#...$"),
+		[]rune(".+...$...$...+."),
+		[]rune("..#...#.#...#.."),
+		[]rune("*..$...+...$..*"),
+		[]rune(".#..#.....#..#."),
+		[]rune("..#..+...+..#.."),
+		[]rune("...*..$.$..*..."),
 	}
 	scores = map[rune]int{
 		'A': 1, 'B': 3, 'C': 3, 'D': 2, 'E': 1, 'F': 4, 'G': 2, 'H': 4, 'I': 1,
@@ -38,12 +38,25 @@ func init() {
 	spacesRegexp, _ = regexp.Compile(`\s+`)
 }
 
+func MultipliersAt(row, col int) (letter, word int) {
+	special := specials[row][col]
+	letter = 1
+	word = 1
+	if lm, ok := letterMultipliers[special]; ok {
+		letter = lm
+	}
+	if wm, ok := wordMultipliers[special]; ok {
+		word = wm
+	}
+	return
+}
+
 type Board struct {
-	config []byte
+	config []rune
 }
 
 type PositionInfo struct {
-	Row, Col           int
+	Row, Col int
 
 	// Constraint query if placing along a row or column,
 	// respectively.
@@ -54,14 +67,16 @@ type PositionInfo struct {
 	// row), we will connect up a word where the sum of existing
 	// tiles (not including the one we placed) is RowScore. This
 	// can be used to compute intersecting word scores, etc.
-	RowScore, ColScore int
+	// The position score is the score of the letter at this position, if there
+	// is one.
+	PosScore, RowScore, ColScore int
 }
 
 // Create a new empty scrabble board, with 15x15 spaces and no constraints.
 func New() (board Board) {
-	board.config = make([]byte, 15*15)
+	board.config = make([]rune, 15*15)
 	for i := range board.config {
-		board.config[i] = byte('.')
+		board.config[i] = '.'
 	}
 	return
 }
@@ -75,10 +90,11 @@ func New() (board Board) {
 // "unconstrained".
 func NewFromString(config string) (board Board) {
 	normalized := spacesRegexp.ReplaceAllLiteralString(strings.ToUpper(config), "")
-	if len(normalized) != 15*15 {
+	runes := []rune(normalized)
+	if len(runes) != 15*15 {
 		panic(fmt.Sprintf("Scrabble board not 15x15: %v", normalized))
 	}
-	board.config = []byte(normalized)
+	board.config = runes
 	return
 }
 
@@ -107,10 +123,11 @@ func (board Board) PositionInfo(row, col int) PositionInfo {
 	info := PositionInfo{
 		Row:      row,
 		Col:      col,
-		RowScore: 0,
-		ColScore: 0,
 		RowQuery: string(atPos),
 		ColQuery: string(atPos),
+		PosScore: scores[atPos],
+		RowScore: 0,
+		ColScore: 0,
 	}
 	if atPos == '.' {
 		// Search the column for adjacent constraints.
@@ -150,15 +167,15 @@ func (board Board) PositionInfo(row, col int) PositionInfo {
 			}
 			info.RowQuery = strings.Join(constraints, "")
 			for i, c := range info.RowQuery {
-				if c != '.' && !board.BlankAt(r0 + i, col) {
+				if c != '.' && !board.BlankAt(r0+i, col) {
 					info.RowScore += scores[c]
 				}
 			}
 		}
 		if c0 != col || c1 != col+1 {
-			info.ColQuery = string(board.config[row*15+c0:row*15+c1])
+			info.ColQuery = string(board.config[row*15+c0 : row*15+c1])
 			for i, c := range info.ColQuery {
-				if c != '.' && !board.BlankAt(row, col + i) {
+				if c != '.' && !board.BlankAt(row, col+i) {
 					info.ColScore += scores[c]
 				}
 			}
@@ -194,6 +211,94 @@ func (board Board) ColQuery(col int) string {
 	return strings.Join(pieces, "")
 }
 
-// TODO: Write a function to score a valid placement of a set of
-// tiles (including word and letter multipliers, and the ability
-// to understand blanks).
+// Score a particular placement. This is generic and works with either rows or
+// columns, which is why the interface is somewhat weird.
+//
+// Args:
+// 	places: a slice of runes with the placement info. '_' is a blank tile, ' ' means "do nothing".
+// 	getStuff: a function that returns important information for the calculation:
+// 		adjq: the adjacency query (e.g., RowQuery from PositionInfo)
+// 		posscore: the score of *this letter* if it's already on the board (not being placed)
+// 		adjscore: the score of the letters in the adjacency query
+// 		lmul: the letter multiplier at this position
+// 		wmul: the word multiplier at this position
+// 		blank: whether this position is a blank tile already on the board (not being placed)
+//
+// Returns an integer word placement score (including multipliers and bingo calculation).
+func (board Board) ScorePlacement(
+	places []rune,
+	getStuff func(i int) (adjq string, posscore, adjscore, lmul, wmul int, blank bool)) int {
+
+	wordMultiplier := 1
+	adjacentScore := 0
+	thisScore := 0
+	numPlaced := 0
+
+	for i, c := range places {
+		adjq, posscore, adjscore, lmul, wmul, blank := getStuff(i)
+
+		// If this is a fixed tile (there is no . anywhere), then we just add
+		// the score for this tile with nothing else fancy going on.
+		if strings.IndexRune(adjq, '.') == -1 {
+			if c != ' ' && adjq != string(c) {
+				panic(fmt.Sprintf(
+					"Incorrect placement '%v' for fixed tile '%v'", string(c), adjq))
+			}
+			if !blank {
+				thisScore += posscore
+			}
+			continue
+		}
+
+		// Not a fixed point, but a placed tile. We compute not only the
+		// running score, but we also apply letter multipliers and compute
+		// adjacency scores (with word multipliers).
+
+		numPlaced++
+		letterScore := 0
+
+		wordMultiplier *= wmul
+
+		if c != '_' {
+			letterScore = scores[c] * lmul
+		}
+
+		adjacentScore += (letterScore + adjscore) * wmul
+		thisScore += letterScore // word multiplier comes later.
+	}
+
+	thisScore *= wordMultiplier
+	thisScore += adjacentScore
+	if numPlaced == 7 {
+		thisScore += 50
+	}
+	return thisScore
+}
+
+// Score a placement of tiles for the given row, starting at the given column.
+// A _ means "blank tile" (and therefore won't get scored).
+// Fixed values can be specified as " " or as the actual fixed value.
+func (board Board) ScoreRowPlacement(row, startCol int, placement string) int {
+	return board.ScorePlacement(
+		[]rune(placement),
+		func(i int) (string, int, int, int, int, bool) {
+			info := board.PositionInfo(row, startCol + i)
+			lm, wm := MultipliersAt(row, startCol + i)
+			blank := board.BlankAt(row, startCol + i)
+			return info.RowQuery, info.PosScore, info.RowScore, lm, wm, blank
+		})
+}
+
+// Score a placement of tiles for the given column, starting at the startRow.
+// A _ means "blank tile" (and therefore won't get scored).
+// Fixed values can be specified as " " or as the actual fixed value.
+func (board Board) ScoreColPlacement(col, startRow int, placement string) int {
+	return board.ScorePlacement(
+		[]rune(placement),
+		func(i int) (string, int, int, int, int, bool) {
+			info := board.PositionInfo(startRow + i, col)
+			lm, wm := MultipliersAt(startRow + i, col)
+			blank := board.BlankAt(startRow + i, col)
+			return info.ColQuery, info.PosScore, info.ColScore, lm, wm, blank
+		})
+}

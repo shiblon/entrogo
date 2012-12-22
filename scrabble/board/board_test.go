@@ -55,16 +55,17 @@ func TestPositionInfo(t *testing.T) {
 		obtained := board.PositionInfo(info.Row, info.Col)
 		if info.RowQuery != obtained.RowQuery || info.ColQuery != obtained.ColQuery ||
 			info.RowScore != obtained.RowScore || info.ColScore != obtained.ColScore ||
-			info.Row != obtained.Row || info.Col != obtained.Col {
+			info.Row != obtained.Row || info.Col != obtained.Col ||
+			info.PosScore != obtained.PosScore {
 			t.Errorf("Unexpected position info. Wanted\n%v\nGot\n%v", info, obtained)
 		}
 	}
 
-	testf(PositionInfo{6, 1, ".", ".", 0, 0})
-	testf(PositionInfo{6, 2, ".A", ".", 1, 0})
-	testf(PositionInfo{6, 4, ".CA", ".", 4, 0})
-	testf(PositionInfo{7, 5, ".B", "ABC.RT", 3, 9})
-	testf(PositionInfo{7, 10, "X", "X", 0, 0})
+	testf(PositionInfo{6, 1, ".", ".", 0, 0, 0})
+	testf(PositionInfo{6, 2, ".A", ".", 0, 1, 0})
+	testf(PositionInfo{6, 4, ".CA", ".", 0, 4, 0})
+	testf(PositionInfo{7, 5, ".B", "ABC.RT", 0, 3, 9})
+	testf(PositionInfo{7, 10, "X", "X", 8, 0, 0})
 }
 
 func TestRowQueries(t *testing.T) {
@@ -99,3 +100,5 @@ func TestColQueries(t *testing.T) {
 	testf(3, ".......B<.ABCLSD>......")
 	testf(14, "...............")
 }
+
+// TODO: Test the scoring functions.
