@@ -102,4 +102,22 @@ func TestColQueries(t *testing.T) {
 	testf(14, "...............")
 }
 
+func TestScorePlacement(t *testing.T) {
+	board := NewFromString(testString)
+
+	testf := func(row, col int, placement string, score int) {
+		if s := board.ScoreColPlacement(col, row, placement); s != score {
+			t.Errorf("Score for col placement %v,%v,%v should be %v, was %v",
+				row, col, placement, score, s)
+		}
+	}
+
+	testf(4, 4, "BIGCAT", 13)    // check that 'placing' existing tiles works
+	testf(4, 4, "BIG  T", 13)    // check that ' ' means 'do not place'
+	testf(4, 4, "Big  T", 13)    // check multiple cases
+	testf(7, 7, "Tlinglit", 20)  // double word score
+	testf(6, 7, "atlinglit", 72) // double word score, used 7 letters
+	testf(3, 8, "bricks", 36)    // k intersects with an existing word
+}
+
 // TODO: Test the scoring functions.

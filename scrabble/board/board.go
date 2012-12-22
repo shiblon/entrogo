@@ -263,7 +263,10 @@ func (board Board) ScorePlacement(
 			letterScore = scores[c] * lmul
 		}
 
-		adjacentScore += (letterScore + adjscore) * wmul
+		// We already know it *has* a '.', this tests whether there are constraining tiles to score.
+		if adjq != "." {
+			adjacentScore += (letterScore + adjscore) * wmul
+		}
 		thisScore += letterScore // word multiplier comes later.
 	}
 
@@ -280,7 +283,7 @@ func (board Board) ScorePlacement(
 // Fixed values can be specified as " " or as the actual fixed value.
 func (board Board) ScoreRowPlacement(row, startCol int, placement string) int {
 	return board.ScorePlacement(
-		[]rune(placement),
+		[]rune(strings.ToUpper(placement)),
 		func(i int) (string, int, int, int, int, bool) {
 			info := board.PositionInfo(row, startCol + i)
 			lm, wm := MultipliersAt(row, startCol + i)
@@ -294,7 +297,7 @@ func (board Board) ScoreRowPlacement(row, startCol int, placement string) int {
 // Fixed values can be specified as " " or as the actual fixed value.
 func (board Board) ScoreColPlacement(col, startRow int, placement string) int {
 	return board.ScorePlacement(
-		[]rune(placement),
+		[]rune(strings.ToUpper(placement)),
 		func(i int) (string, int, int, int, int, bool) {
 			info := board.PositionInfo(startRow + i, col)
 			lm, wm := MultipliersAt(startRow + i, col)
