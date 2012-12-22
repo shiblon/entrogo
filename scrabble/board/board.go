@@ -45,16 +45,16 @@ type Board struct {
 type PositionInfo struct {
 	Row, Col           int
 
+	// Constraint query if placing along a row or column,
+	// respectively.
+	RowQuery, ColQuery string
+
 	// Score (sum) of adjacent tiles if placing a tile along a row
 	// or column. This means that if we place a tile here (along a
 	// row), we will connect up a word where the sum of existing
 	// tiles (not including the one we placed) is RowScore. This
 	// can be used to compute intersecting word scores, etc.
 	RowScore, ColScore int
-
-	// Constraint query if placing along a row or column,
-	// respectively.
-	RowQuery, ColQuery string
 }
 
 // Create a new empty scrabble board, with 15x15 spaces and no constraints.
@@ -193,3 +193,7 @@ func (board Board) ColQuery(col int) string {
 	}
 	return strings.Join(pieces, "")
 }
+
+// TODO: Write a function to score a valid placement of a set of
+// tiles (including word and letter multipliers, and the ability
+// to understand blanks).

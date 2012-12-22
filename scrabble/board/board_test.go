@@ -48,21 +48,23 @@ func TestNewFromString(t *testing.T) {
 	}
 }
 
-func TestPositionQueries(t *testing.T) {
+func TestPositionInfo(t *testing.T) {
 	board := NewFromString(testString)
 
-	testf := func(row, col int, rquery, cquery string) {
-		info := board.PositionInfo(row, col)
-		if rq, cq := info.RowQuery, info.ColQuery; rq != rquery && cq != cquery {
-			t.Errorf("Unexpected value at %v,%v: %v, %v", row, col, rq, cq)
+	testf := func(info PositionInfo) {
+		obtained := board.PositionInfo(info.Row, info.Col)
+		if info.RowQuery != obtained.RowQuery || info.ColQuery != obtained.ColQuery ||
+			info.RowScore != obtained.RowScore || info.ColScore != obtained.ColScore ||
+			info.Row != obtained.Row || info.Col != obtained.Col {
+			t.Errorf("Unexpected position info. Wanted\n%v\nGot\n%v", info, obtained)
 		}
 	}
 
-	testf(6, 1, ".", ".")
-	testf(6, 2, ".A", ".")
-	testf(6, 4, ".CA", ".")
-	testf(7, 5, ".B", "ABC.RT")
-	testf(7, 10, "X", "X")
+	testf(PositionInfo{6, 1, ".", ".", 0, 0})
+	testf(PositionInfo{6, 2, ".A", ".", 1, 0})
+	testf(PositionInfo{6, 4, ".CA", ".", 4, 0})
+	testf(PositionInfo{7, 5, ".B", "ABC.RT", 3, 9})
+	testf(PositionInfo{7, 10, "X", "X", 0, 0})
 }
 
 func TestRowQueries(t *testing.T) {
