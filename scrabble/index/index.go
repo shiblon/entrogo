@@ -2,6 +2,7 @@ package index
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"monson/mealy"
 	"sort"
@@ -26,9 +27,13 @@ func (mlc MissingLetterConstraint) IsValueAllowed(i int, val byte) bool {
 	return mlc.Query[i] == '.' || mlc.Query[i] == val
 }
 
-
 type Index struct {
 	mealy.Recognizer
+}
+
+func ReadFrom(r io.Reader) (self Index, err error) {
+	recognizer, err := mealy.ReadFrom(r)
+	return Index{recognizer}, err
 }
 
 // Return all words that are valid for the given "missing letter" query.
@@ -86,6 +91,8 @@ type AllowedInfo struct {
 	Constraints           []string
 	Draws                 []bool
 	Available             map[byte]int
+
+	notAnchored          bool
 	_used                 UsedStack
 }
 
@@ -101,6 +108,12 @@ func NewAllowedInfo(constraints []string, draws []bool, available map[byte]int) 
 	for k, v := range available {
 		info.Available[k] = v
 	}
+	return info
+}
+
+func NewUnanchoredAllowedInfo(constraints []string, draws []bool, available map[byte]int) AllowedInfo {
+	info := NewAllowedInfo(constraints, draws, available)
+	info.notAnchored = true
 	return info
 }
 
@@ -120,7 +133,11 @@ func (info AllowedInfo) AnchoredSubSequence(left, right int) bool {
 	return num_draw > 0 && num_fixed > 0
 }
 func (info AllowedInfo) MakeSuffix(left int) AllowedInfo {
-	return NewAllowedInfo(info.Constraints[left:], info.Draws[left:], info.Available)
+	f := NewAllowedInfo
+	if info.notAnchored {
+		f = NewUnanchoredAllowedInfo
+	}
+	return f(info.Constraints[left:], info.Draws[left:], info.Available)
 }
 func (info AllowedInfo) Possible() bool {
 	for _, x := range info.Constraints {
@@ -207,7 +224,7 @@ func (info AllowedInfo) IsSequenceAllowed(seq []byte) bool {
 	// end is a draw. If the value just beyond the end is fixed, then this is
 	// not a valid sequence because it *must* have more on it to fit the board.
 	sizeGood := len(seq) == len(info.Constraints) || info.Draws[len(seq)]
-	return info.AnchoredSubSequence(0, len(seq)) && sizeGood
+	return (info.notAnchored || info.AnchoredSubSequence(0, len(seq))) && sizeGood
 }
 
 // Given a query string, produce the sequence of allowed letters (in a string).
@@ -243,7 +260,7 @@ func (idx Index) GetAllowedLetters(queryPieces []string, available map[byte]int)
 			if len(letters) == 0 {
 				letters = "~"
 			}
-			fmt.Println("Query:", qp, "\t["+letters+"]")
+			// fmt.Println("Query:", qp, "\t["+letters+"]")
 			qp = letters
 		} else if qp != "." {
 			info.Draws[i] = false

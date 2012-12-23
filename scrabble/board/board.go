@@ -86,6 +86,17 @@ func New() (board Board) {
 	return
 }
 
+// Return true if there are no tiles placed on this board.
+func (board Board) IsEmpty() (empty bool) {
+	empty = true
+	for _, val := range board.config {
+		if val != '.' {
+			empty = false
+		}
+	}
+	return
+}
+
 // Create a new scrabble board from a string.
 //
 // The string should be in row-major order, left-to-right, top-to-bottom.
@@ -197,29 +208,21 @@ func (board Board) PositionInfo(row, col int) PositionInfo {
 
 // Return a row query for the given row. Includes constraints from adjacent
 // letters if there is a blank somewhere on the row.
-func (board Board) RowQuery(row int) string {
+func (board Board) RowQuery(row int) []string {
 	pieces := make([]string, 15)
 	for col := 0; col < 15; col++ {
-		q := board.PositionInfo(row, col).RowQuery
-		if len([]rune(q)) > 1 {
-			q = "<" + q + ">"
-		}
-		pieces[col] = q
+		pieces[col] = board.PositionInfo(row, col).RowQuery
 	}
-	return strings.Join(pieces, "")
+	return pieces
 }
 
 // Return a column query for the given column, similar to RowQuery.
-func (board Board) ColQuery(col int) string {
+func (board Board) ColQuery(col int) []string {
 	pieces := make([]string, 15)
 	for row := 0; row < 15; row++ {
-		q := board.PositionInfo(row, col).ColQuery
-		if len([]rune(q)) > 1 {
-			q = "<" + q + ">"
-		}
-		pieces[row] = q
+		pieces[row] = board.PositionInfo(row, col).ColQuery
 	}
-	return strings.Join(pieces, "")
+	return pieces
 }
 
 // Score a particular placement. This is generic and works with either rows or

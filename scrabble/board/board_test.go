@@ -1,6 +1,7 @@
 package board
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -69,37 +70,41 @@ func TestPositionInfo(t *testing.T) {
 	testf(PositionInfo{7, 10, "X", "X", 8, 0, 0})
 }
 
+func strSliceEq(a, b []string) bool {
+	return fmt.Sprintf("%#v", a) == fmt.Sprintf("%#v", b)
+}
+
 func TestRowQueries(t *testing.T) {
 	board := NewFromString(testString)
 
-	testf := func(row int, query string) {
-		if rq := board.RowQuery(row); rq != query {
+	testf := func(row int, query []string) {
+		if rq := board.RowQuery(row); !strSliceEq(rq, query) {
 			t.Errorf("Unexpected row query at row %v: %v", row, rq)
 		}
 	}
 
-	testf(5, "...............")
-	testf(6, "..<.A><.B><.CA>.<.RC><.TL>.<.UD><.X><.V><.S>..")
-	testf(7, "..ABC<.B>RT<.S>UXVS..")
-	testf(8, "..<A.><B.>ABCLSD<X.><V.><S.>..")
-	testf(9, "....<CA.><B.><RC.><TL.><S.><UD.>.....")
-	testf(10, "...............")
+	testf(5, []string{".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", "."})
+	testf(6, []string{".", ".", ".A", ".B", ".CA", ".", ".RC", ".TL", ".", ".UD", ".X", ".V", ".S", ".", "."})
+	testf(7, []string{".", ".", "A", "B", "C", ".B", "R", "T", ".S", "U", "X", "V", "S", ".", "."})
+	testf(8, []string{".", ".", "A.", "B.", "A", "B", "C", "L", "S", "D", "X.", "V.", "S.", ".", "."})
+	testf(9, []string{".", ".", ".", ".", "CA.", "B.", "RC.", "TL.", "S.", "UD.", ".", ".", ".", ".", "."})
+	testf(10, []string{".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", "."})
 }
 
 func TestColQueries(t *testing.T) {
 	board := NewFromString(testString)
 
-	testf := func(col int, query string) {
-		if cq := board.ColQuery(col); cq != query {
+	testf := func(col int, query []string) {
+		if cq := board.ColQuery(col); !strSliceEq(cq, query) {
 			t.Errorf("Unexpected col query at col %v: %v", col, cq)
 		}
 	}
 
-	testf(0, "...............")
-	testf(1, ".......<.ABC>.......")
-	testf(2, ".......A.......")
-	testf(3, ".......B<.ABCLSD>......")
-	testf(14, "...............")
+	testf(0, []string{".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", "."})
+	testf(1, []string{".", ".", ".", ".", ".", ".", ".", ".ABC", ".", ".", ".", ".", ".", ".", "."})
+	testf(2, []string{".", ".", ".", ".", ".", ".", ".", "A", ".", ".", ".", ".", ".", ".", "."})
+	testf(3, []string{".", ".", ".", ".", ".", ".", ".", "B", ".ABCLSD", ".", ".", ".", ".", ".", "."})
+	testf(14, []string{".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", "."})
 }
 
 func TestScorePlacement(t *testing.T) {
