@@ -12,83 +12,30 @@ import (
 	"strings"
 )
 
-const (
-	RIGHT = iota
-	DOWN
-)
-
+// Flags
 var (
 	recognizerFile = flag.String("recognizer", "wordswithfriends.mealy",
 		"Serialized Mealy machine to use as a word recognizer.")
 )
 
-// TODO:
-// Use a full board instead of just a single line.
-// Remove this whole var section and all scoring functions - favor the board functions instead.
-var (
-	LetterScores = map[rune]int{
-		'A': 1, 'B': 3, 'C': 3, 'D': 2,
-		'E': 1, 'F': 4, 'G': 2, 'H': 4,
-		'I': 1, 'J': 8, 'K': 5, 'L': 1,
-		'M': 3, 'N': 2, 'O': 1, 'P': 3,
-		'Q': 10, 'R': 1, 'S': 1, 'T': 1,
-		'U': 1, 'V': 4, 'W': 4, 'X': 8,
-		'Y': 4, 'Z': 10,
-	}
-
-	LetterMultipliers = map[string]int{"$": 3, "#": 2}
-
-	WordMultipliers = map[string]int{"*": 3, "+": 2}
-
-	Board = []string{
-		"...*..$.$..*...",
-		"..#..+...+..#..",
-		".#..#.....#..#.",
-		"*..$...+...$..*",
-		"..#...#.#...#..",
-		".+...$...$...+.",
-		"$...#.....#...$",
-		"...+.......+...",
-	}
+// Directions
+const (
+	RIGHT = iota
+	DOWN
 )
 
-// An imperfect score for a sequence. If line is 0, just score the letters,
-// otherwise try to figure it out based on the board (1-based line count).
-// TODO: Add in information about intersecting words.
-// TODO: Don't score fixed letters (they don't get extra scores).
-
-// line and pos are both *1-based*.
-func SeqScore(seq []byte, line, pos int, draws []bool) int {
-	if len(draws) == 0 {
-		draws = make([]bool, len(seq))
-		for i := 0; i < len(draws); i++ {
-			draws[i] = true
-		}
-	}
-	s := 0
-	wordMultiplier := 1
-	for i, v := range seq {
-		p := pos + i
-		ls := LetterScores[rune(v)]
-		if line > 0 {
-			b := string(Board[line-1][p-1])
-			if draws[i] { // multipliers only apply to placed tiles
-				wm := WordMultipliers[b]
-				lm := LetterMultipliers[b]
-				if wm > 0 {
-					wordMultiplier *= wm
-				}
-				if lm > 0 {
-					ls *= lm
-				}
-			}
-		}
-		s += ls
-	}
-	s *= wordMultiplier
-	return s
-}
-
+// Produce all valid "left" indices for a particular search query.
+// What determines whether an index is valid is whether it can form the start
+// of a complete word. This basically means "any cell with nothing on the
+// left".
+//
+// A cell that has *something* on the left of it cannot form the beginning of a
+// word because it must have a prefix (the stuff on the left) to be a word.
+//
+// Given a query like  ..AD.., this will produce the indices 0, 1, 2, 5
+// (because indices 3 and 4 are 'D' and the '.' after it, which can't be the
+// beginning of a word, but index 2 can, since a word can start with 'AD' in
+// this scenario).
 func GetSubSuffixes(info index.AllowedInfo) <-chan int {
 	out := make(chan int)
 	emit := func(left int) {
@@ -108,11 +55,16 @@ func GetSubSuffixes(info index.AllowedInfo) <-chan int {
 	return out
 }
 
+// Endpoints, left inclusive, right exclusive: [left, right)
 type Endpoints struct {
 	left  int
 	right int
 }
 
+// Get all allowed subconstraints from an initial constraint.
+//
+// This constitutes peeling off from the left and right whatever can be peeled
+// off to form a new sub constraint.
 func GetSubConstraints(info index.AllowedInfo) <-chan Endpoints {
 	out := make(chan Endpoints)
 	emit := func(left, right int) {
@@ -137,20 +89,8 @@ func GetSubConstraints(info index.AllowedInfo) <-chan Endpoints {
 	return out
 }
 
-func FormatSeq(word []byte, left, origSize int) []byte {
-	pieces := make([]byte, origSize)
-	for i := 0; i < left; i++ {
-		pieces[i] = '_'
-	}
-	for i, c := range word {
-		pieces[i+left] = c
-	}
-	for i := left + len(word); i < origSize; i++ {
-		pieces[i] = '_'
-	}
-	return pieces
-}
-
+// Create a map from byte to count, given a string containing all tiles
+// (including '.' for blank tiles).
 func TileCounts(available string) (counts map[byte]int) {
 	counts = make(map[byte]int)
 	for _, c := range strings.ToUpper(available) {
@@ -178,19 +118,20 @@ func (self foundword) String() string {
 		self.word, self.score, self.line, self.start)
 }
 
-// Make it sortable
 type foundwords []foundword
-
 func (self foundwords) Len() int {
 	return len(self)
 }
 func (self foundwords) Less(a, b int) bool {
+	// Sort by score.
 	return self[a].score < self[b].score
 }
 func (self foundwords) Swap(a, b int) {
 	self[a], self[b] = self[b], self[a]
 }
 
+// Given a line-oriented query (find me a word that matches this sort of line),
+// produce all valid words on that line.
 func LineWords(line, direction int, idx index.Index, lineQuery []string, available map[byte]int) <-chan foundword {
 	allowed := idx.GetAllowedLetters(lineQuery, available)
 
@@ -215,6 +156,14 @@ func LineWords(line, direction int, idx index.Index, lineQuery []string, availab
 	return out
 }
 
+// Given a blank board, find all words we can play with our given tiles, from the center.
+//
+// Since the center spot is always required, we just always start our words
+// from there. No word will ever be long enough to go off the edge of the
+// board, since that is 8 tiles away and we only ever have 7.
+//
+// Also, direction is not important because the board has 4-way symmetry. So,
+// we always choose 7,7,RIGHT.
 func InitialWords(idx index.Index, available map[byte]int) <-chan foundword {
 	allowed := index.NewUnanchoredAllowedInfo(
 		[]string{".", ".", ".", ".", ".", ".", "."},
@@ -241,6 +190,11 @@ func InitialWords(idx index.Index, available map[byte]int) <-chan foundword {
 	return out
 }
 
+// Get all words that can be formed on this board with the available tiles, and
+// score all of them.
+//
+// Empty boards are also allowed, in which case all words formable with the
+// available tiles are used, starting at 7,7 and going to the right.
 func BoardWords(board board.Board, idx index.Index, available map[byte]int) <-chan foundword {
 	out := make(chan foundword)
 
@@ -311,7 +265,7 @@ func main() {
 		allwords = append(allwords, word)
 	}
 
-	// Sort by score, descending.
+	// Sort by score, ascending.
 	sort.Sort(foundwords(allwords))
 
 	for _, w := range allwords {
