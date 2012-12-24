@@ -121,7 +121,7 @@ func TestScorePlacement(t *testing.T) {
 	testf(4, 4, "BIG  T", 13)    // check that ' ' means 'do not place'
 	testf(4, 4, "Big  T", 13)    // check multiple cases
 	testf(7, 7, "Tlinglit", 20)  // double word score
-	testf(6, 7, "atlinglit", 72) // double word score, used 7 letters
+	testf(6, 7, "atlinglit", 22 + bingo) // double word score, used 7 letters
 	testf(3, 8, "bricks", 36)    // k intersects with an existing word
 }
 

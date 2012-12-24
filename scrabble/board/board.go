@@ -13,6 +13,7 @@ var (
 	spacesRegexp      *regexp.Regexp
 	wordMultipliers   = map[rune]int{'*': 3, '+': 2}
 	letterMultipliers = map[rune]int{'$': 3, '#': 2}
+	bingo             = 35 // points for bingo
 	specials          = [][]rune{
 		[]rune("...*..$.$..*..."),
 		[]rune("..#..+...+..#.."),
@@ -74,7 +75,7 @@ type PositionInfo struct {
 type Board struct {
 	config []rune
 	// Cached info lists.
-	positionInfoCache [15*15]*PositionInfo
+	positionInfoCache [15 * 15]*PositionInfo
 }
 
 // Create a new empty scrabble board, with 15x15 spaces and no constraints.
@@ -287,7 +288,7 @@ func (board Board) ScorePlacement(
 	thisScore *= wordMultiplier
 	thisScore += adjacentScore
 	if numPlaced == 7 {
-		thisScore += 50
+		thisScore += bingo
 	}
 	return thisScore
 }
@@ -299,9 +300,9 @@ func (board Board) ScoreRowPlacement(row, startCol int, placement string) int {
 	return board.ScorePlacement(
 		[]rune(strings.ToUpper(placement)),
 		func(i int) (string, int, int, int, int, bool) {
-			info := board.PositionInfo(row, startCol + i)
-			lm, wm := MultipliersAt(row, startCol + i)
-			blank := board.BlankAt(row, startCol + i)
+			info := board.PositionInfo(row, startCol+i)
+			lm, wm := MultipliersAt(row, startCol+i)
+			blank := board.BlankAt(row, startCol+i)
 			return info.RowQuery, info.PosScore, info.RowScore, lm, wm, blank
 		})
 }
@@ -313,9 +314,9 @@ func (board Board) ScoreColPlacement(col, startRow int, placement string) int {
 	return board.ScorePlacement(
 		[]rune(strings.ToUpper(placement)),
 		func(i int) (string, int, int, int, int, bool) {
-			info := board.PositionInfo(startRow + i, col)
-			lm, wm := MultipliersAt(startRow + i, col)
-			blank := board.BlankAt(startRow + i, col)
+			info := board.PositionInfo(startRow+i, col)
+			lm, wm := MultipliersAt(startRow+i, col)
+			blank := board.BlankAt(startRow+i, col)
 			return info.ColQuery, info.PosScore, info.ColScore, lm, wm, blank
 		})
 }
