@@ -110,9 +110,9 @@ type foundword struct {
 func (self foundword) String() string {
 	switch self.direction {
 	case RIGHT:
-		return fmt.Sprintf("%s (%d): row %d, start %d", self.word, self.score, self.line, self.start)
+		return fmt.Sprintf("%s (%d): %d, %d across", self.word, self.score, self.line, self.start)
 	case DOWN:
-		return fmt.Sprintf("%s (%d): col %d, start %d", self.word, self.score, self.line, self.start)
+		return fmt.Sprintf("%s (%d): %d, %d down", self.word, self.score, self.start, self.line)
 	}
 	return fmt.Sprintf("%s (%d): direction? line %d, start %d",
 		self.word, self.score, self.line, self.start)
