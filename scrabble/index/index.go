@@ -92,8 +92,8 @@ type AllowedInfo struct {
 	Draws                 []bool
 	Available             map[byte]int
 
-	notAnchored          bool
-	_used                 UsedStack
+	notAnchored bool
+	_used       UsedStack
 }
 
 func NewAllowedInfo(constraints []string, draws []bool, available map[byte]int) AllowedInfo {
@@ -117,6 +117,7 @@ func NewUnanchoredAllowedInfo(constraints []string, draws []bool, available map[
 	return info
 }
 
+// Returns true if this sequence is touching at least one letter on the board.
 func (info AllowedInfo) AnchoredSubSequence(left, right int) bool {
 	num_draw := 0
 	num_fixed := 0
@@ -148,16 +149,14 @@ func (info AllowedInfo) Possible() bool {
 	return true
 }
 
-// Return false if the first non-wild is an impossible constraint.
+// Return false if the first constraint is impossible. Note that partial
+// constraints (partial wilds) count as constraints.
 func (info AllowedInfo) PossiblePrefix() bool {
-	for i, d := range info.Draws {
-		if !d {
-			// A fixed value is OK
-			return true
+	for _, c := range info.Constraints {
+		if c == "." {
+			continue
 		}
-		if strings.ContainsRune(info.Constraints[i], '~') {
-			return false
-		}
+		return !strings.ContainsRune(c, '~')
 	}
 	return true
 }

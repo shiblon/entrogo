@@ -119,6 +119,7 @@ func (self foundword) String() string {
 }
 
 type foundwords []foundword
+
 func (self foundwords) Len() int {
 	return len(self)
 }
@@ -178,9 +179,9 @@ func InitialWords(idx index.Index, available map[byte]int) <-chan foundword {
 			subinfo := allowed.MakeSuffix(left)
 			for seq := range idx.ConstrainedSequences(subinfo) {
 				out <- foundword{
-					word: string(seq),
-					start: 7,
-					line: 7,
+					word:      string(seq),
+					start:     7,
+					line:      7,
 					direction: RIGHT,
 				}
 			}
