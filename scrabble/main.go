@@ -234,7 +234,7 @@ func main() {
 	flag.Parse()
 
 	// Read the recognizer.
-	fmt.Print("Raeding recognizer...")
+	fmt.Print("Reading recognizer...")
 	rfile, err := os.Open(*recognizerFile)
 	if err != nil {
 		log.Fatalf("Failed to open '%v': %v", *recognizerFile, err)
