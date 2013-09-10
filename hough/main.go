@@ -20,9 +20,9 @@ var (
 type FeatureSpace map[image.Point]bool
 
 type ConvolutionImage struct {
-	Width int
+	Width  int
 	Height int
-	Pix [][]int
+	Pix    [][]int
 	MinVal int
 	MaxVal int
 }
@@ -43,8 +43,8 @@ func (img *ConvolutionImage) ToGray() (out *image.Gray) {
 		row := img.Pix[y]
 		for x := 0; x < img.Width; x++ {
 			// Map all values into range [0,255]
-			val_weight := float64(row[x] - img.MinVal) / dynamic_range
-			out.Pix[start + x] = uint8(val_weight * 255)
+			val_weight := float64(row[x]-img.MinVal) / dynamic_range
+			out.Pix[start+x] = uint8(val_weight * 255)
 		}
 		start += img.Width
 	}
@@ -108,7 +108,7 @@ func ConvolveGray(img *image.Gray, mtx [][]int8) (out ConvolutionImage) {
 		for x := b.Min.X; x < b.Max.X-mw+1; x++ {
 			val := 0
 			for my := 0; my < mh; my++ {
-				start := (y+my-img.Rect.Min.Y)*img.Stride + (x-img.Rect.Min.X)
+				start := (y+my-img.Rect.Min.Y)*img.Stride + (x - img.Rect.Min.X)
 				for mx := 0; mx < mw; mx++ {
 					val += int(img.Pix[start+mx]) * int(mtx[my][mx])
 				}
@@ -152,20 +152,22 @@ func main() {
 	xedge, yedge := EdgeDetect(gimg)
 	magedge := PixelMergeConvolutionImages([]ConvolutionImage{xedge, yedge}, func(vals []int) int {
 		s := 0.0
-		for i := range (vals) {
+		for i := range vals {
 			s += float64(vals[i]) * float64(vals[i])
 		}
 		return int(math.Sqrt(s))
 	})
 	angedge := PixelMergeConvolutionImages([]ConvolutionImage{xedge, yedge}, func(vals []int) int {
-		return int(180*math.Atan2(float64(vals[1]), float64(vals[0]))/math.Pi)
+		return int(180 * math.Atan2(float64(vals[1]), float64(vals[0])) / math.Pi)
 	})
 
+	gout, err := os.Create("gout.png")
 	xout, err := os.Create("xout.png")
 	yout, err := os.Create("yout.png")
 	mout, err := os.Create("mout.png")
 	aout, err := os.Create("aout.png")
 
+	png.Encode(gout, gimg)
 	png.Encode(xout, xedge.ToGray())
 	png.Encode(yout, yedge.ToGray())
 	png.Encode(mout, magedge.ToGray())
