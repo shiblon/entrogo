@@ -1,11 +1,11 @@
 package pso
 
 type Particle struct {
-	Pos  []float64
-	Vel  []float64
-	Bpos []float64
-	Val  []float64
-	Bval []float64
+	Pos  VecFloat64
+	Vel  VecFloat64
+	Bpos VecFloat64
+	Val  VecFloat64
+	Bval VecFloat64
 	Age  int32
 }
 
@@ -26,10 +26,8 @@ func (par *Particle) Init(dim int, vdim int) {
 
 func (par *Particle) UpdateBest() {
 	par.Age = 0
-	for i, coord := range par.Pos {
-		par.Bpos[i] = coord
-	}
-	par.Bval = par.Val
+	par.Bpos.Replace(par.Pos)
+	par.Bval.Replace(par.Val)
 }
 
 type Swarm struct {
