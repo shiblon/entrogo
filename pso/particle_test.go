@@ -12,11 +12,11 @@ func ExampleNewParticle() {
 	p1 := NewParticle(3, 1)
 	p2 := NewParticle(4, 3)
 
-	fmt.Println(p1)
-	fmt.Println(p2)
+	fmt.Printf("p1: %v\n", p1)
+	fmt.Printf("p2: %v\n", p2)
 
 	// Output:
 	//
-	// &{[0 0 0] [0 0 0] [0 0 0] [0] [0] 0}
-	// &{[0 0 0 0] [0 0 0 0] [0 0 0 0] [0 0 0] [0 0 0] 0}
+	// p1: &{[0 0 0] [0 0 0] [0 0 0] [0] [0] 0}
+	// p2: &{[0 0 0 0] [0 0 0 0] [0 0 0 0] [0 0 0] [0 0 0] 0}
 }
