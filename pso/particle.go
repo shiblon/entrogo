@@ -1,12 +1,20 @@
 package pso
 
 type Particle struct {
-	Pos  VecFloat64
-	Vel  VecFloat64
-	Bpos VecFloat64
-	Val  VecFloat64
-	Bval VecFloat64
-	Age  int32
+	// Current state
+	Pos VecFloat64
+	Vel VecFloat64
+	Val VecFloat64
+
+	// Current best state
+	BestPos VecFloat64
+	BestVal VecFloat64
+	BestAge int32
+
+	// Scratch space for delayed batch updates.
+	TmpPos VecFloat64
+	TmpVel VecFloat64
+	TmpVal VecFloat64
 }
 
 func NewParticle(dim int, vdim int) (par *Particle) {
@@ -20,12 +28,28 @@ func (par *Particle) Init(dim int, vdim int) {
 	par.Vel = make([]float64, dim)
 	par.Val = make([]float64, vdim)
 
-	par.Bpos = make([]float64, dim)
-	par.Bval = make([]float64, vdim)
+	par.BestPos = make([]float64, dim)
+	par.BestVal = make([]float64, vdim)
+
+	par.TmpPos = make([]float64, dim)
+	par.TmpVel = make([]float64, dim)
+	par.TmpVal = make([]float64, vdim)
 }
 
+// Update the current state with the scratch state. This is useful if we are
+// doing batch updates and need to compute other particle values based on a
+// consistent time slice.
+func (par *Particle) UpdateCur() {
+	par.Pos.Replace(par.TmpPos)
+	par.Vel.Replace(par.TmpVel)
+	par.Val.Replace(par.TmpVal)
+	par.BestAge++
+}
+
+// We have determined that the current position is better than the current
+// best. Overwrite the best and reset the best age.
 func (par *Particle) UpdateBest() {
-	par.Age = 0
-	par.Bpos.Replace(par.Pos)
-	par.Bval.Replace(par.Val)
+	par.BestAge = 0
+	par.BestPos.Replace(par.Pos)
+	par.BestVal.Replace(par.Val)
 }

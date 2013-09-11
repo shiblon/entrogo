@@ -12,6 +12,7 @@ func NewSwarm(dim, vdim int, size int, neighborhood func(int) []int) (swarm *Swa
 	swarm.Dim = dim
 	swarm.Vdim = vdim
 	swarm.Particles = make([]*Particle, size)
+	swarm.Neighborhood = neighborhood
 
 	for i := range swarm.Particles {
 		swarm.Particles[i].Init(dim, vdim)
