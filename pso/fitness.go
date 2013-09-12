@@ -1,6 +1,6 @@
 package pso
 
-type FitnessFunc interface {
+type FitnessFunction interface {
 	// The main entry point for asking a fitness function questions.
 	Query(VecFloat64) float64
 

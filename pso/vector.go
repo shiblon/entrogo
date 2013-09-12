@@ -3,13 +3,27 @@ package pso
 import (
 	"fmt"
 	"math"
+	"math/rand"
 )
 
 type VecFloat64 []float64
 
+func NewUniformVecFloat64(size int) VecFloat64 {
+	vec := VecFloat64(make([]float64, size))
+	vec.FillStandardUniform()
+	return vec
+}
+
 func (vec *VecFloat64) Fill(val float64) *VecFloat64 {
 	for i := range *vec {
 		(*vec)[i] = val
+	}
+	return vec
+}
+
+func (vec *VecFloat64) FillUniform() *VecFloat64 {
+	for i := range *vec {
+		(*vec)[i] = rand.Float64()
 	}
 	return vec
 }
@@ -50,6 +64,28 @@ func (vec *VecFloat64) DecrBy(other VecFloat64) *VecFloat64 {
 
 	for i := range *vec {
 		(*vec)[i] -= other[i]
+	}
+	return vec
+}
+
+func (vec *VecFloat64) MulBy(other VecFloat64) *VecFloat64 {
+	if len(*vec) != len(other) {
+		panic(fmt.Sprintf("cannot multiply vectors of different lengths: %d != %d", len(*vec), len(other)))
+	}
+
+	for i := range *vec {
+		(*vec)[i] *= other[i]
+	}
+	return vec
+}
+
+func (vec *VecFloat64) DivBy(other VecFloat64) *VecFloat64 {
+	if len(*vec) != len(other) {
+		panic(fmt.Sprintf("cannot divide vectors of different lengths: %d != %d", len(*vec), len(other)))
+	}
+
+	for i := range *vec {
+		(*vec)[i] /= other[i]
 	}
 	return vec
 }
@@ -102,6 +138,18 @@ func (vec VecFloat64) Neg() VecFloat64 {
 func (vec VecFloat64) Add(other VecFloat64) VecFloat64 {
 	out := vec.Copy()
 	out.IncrBy(other)
+	return out
+}
+
+func (vec VecFloat64) Mul(other VecFloat64) VecFloat64 {
+	out := vec.Copy()
+	out.MulBy(other)
+	return out
+}
+
+func (vec VecFloat64) Div(other VecFloat64) VecFloat64 {
+	out := vec.Copy()
+	out.DivBy(other)
 	return out
 }
 
