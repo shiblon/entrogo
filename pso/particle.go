@@ -24,7 +24,7 @@ func NewParticle(pos, vel VecFloat64) (par *Particle) {
 	if len(pos) != len(vel) {
 		panic(fmt.Sprintf("Position and velocity vectors have different lengths: %d != %d", len(pos), len(vel)))
 	}
-	par = new(Particle)
+	par = &Particle{}
 	par.Init(pos, vel)
 	return
 }

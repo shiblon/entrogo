@@ -1,7 +1,9 @@
 package pso
 
+import "fmt"
+
 type Swarm struct {
-	Particles []*Particle
+	Particles []Particle
 
 	Neighborhood Topology
 	Updater      UpdateStrategy
@@ -10,7 +12,7 @@ type Swarm struct {
 
 func NewSwarm(neighborhood Topology, updater UpdateStrategy, fitness FitnessFunction) (swarm *Swarm) {
 	swarm = new(Swarm)
-	swarm.Particles = make([]*Particle, neighborhood.Size())
+	swarm.Particles = make([]Particle, neighborhood.Size())
 	swarm.Neighborhood = neighborhood
 	swarm.Updater = updater
 	swarm.Fitness = fitness
@@ -22,7 +24,7 @@ func NewSwarm(neighborhood Topology, updater UpdateStrategy, fitness FitnessFunc
 // Set the particles to initial positions, velocities, and values.
 func (swarm *Swarm) Init() {
 	for i := range swarm.Particles {
-		particle := swarm.Particles[i]
+		particle := &swarm.Particles[i]
 		particle.Init(swarm.Fitness.RandomPos(), swarm.Fitness.RandomVel())
 		// Also query the function and override best value, since this is an initial state.
 		particle.Val = swarm.Fitness.Query(particle.Pos)
@@ -41,7 +43,7 @@ func (swarm *Swarm) BatchUpdate() {
 				best_n = n
 			}
 		}
-		swarm.Updater.MoveParticle(particle, swarm.Particles[best_n])
+		swarm.Updater.MoveParticle(&particle, swarm.Particles[best_n])
 
 		// Now the TmpPos is set. Call the function for a new value.
 		particle.TmpVal = swarm.Fitness.Query(particle.TmpPos)
@@ -56,4 +58,12 @@ func (swarm *Swarm) BatchUpdate() {
 			particle.UpdateBest()
 		}
 	}
+}
+
+func (swarm Swarm) String() string {
+	s := "Particles\n"
+	for i := range swarm.Particles {
+		s += fmt.Sprintf("  %02d: %#v\n", i, swarm.Particles[i])
+	}
+	return s
 }
