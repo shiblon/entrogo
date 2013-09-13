@@ -92,7 +92,7 @@ func TestAdd(t *testing.T) {
 	vin := VecFloat64{1, 2, 3, 4}
 	v := vin.Add(VecFloat64{2, 4, 6, 8})
 
-	if !EqualElements(v, VecFloat64{3,6,9,12}) {
+	if !EqualElements(v, VecFloat64{3, 6, 9, 12}) {
 		t.Error("Vector Add is broken")
 	}
 
@@ -117,7 +117,7 @@ func TestSub(t *testing.T) {
 func ExampleMap() {
 	v := VecFloat64{1, 2, 3, 4}
 	fmt.Println(v)
-	v.MapBy(func(a float64) float64 {return math.Sqrt(a)})
+	v.MapBy(func(a float64) float64 { return math.Sqrt(a) })
 	fmt.Println(v)
 
 	// Output:

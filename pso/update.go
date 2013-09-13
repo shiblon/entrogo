@@ -17,12 +17,17 @@ func (us StandardUpdateStrategy) MoveParticle(par *Particle, informer *Particle)
 	momentum := 1.0
 	dims := len(par.Pos)
 
-	rand_vec := NewUniformVecFloat64(dims)
-	to_personal := par.BestPos.Sub(par.Pos).MulBy(rand_vec).SMulBy(cog)
-	rand_vec.FillUniform() // set to a new random vector
-	to_informer := informer.BestPos.Sub(par.Pos).MulBy(rand_vec).SMulBy(cog)
+	rand_soc := NewUniformVecFloat64(dims)
+	rand_cog := NewUniformVecFloat64(dims)
 
-	acc := to_personal.Incr(to_informer) // TODO: save memory and allocations by reusing to_personal.
+	to_personal := par.BestPos.Sub(par.Pos)
+	to_informer := informer.BestPos.Sub(par.Pos)
+
+	(&to_personal).MulBy(rand_cog).SMulBy(cog)
+	(&to_informer).MulBy(rand_soc).SMulBy(soc)
+
+	acc := to_personal.Add(to_informer)
+
 	// Set velocity and position directly in scratch area.
 	par.TmpVel.Replace(acc).SMulBy(momentum).IncrBy(acc)
 	par.TmpPos.Replace(par.Pos).IncrBy(par.TmpVel)

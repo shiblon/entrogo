@@ -8,9 +8,15 @@ import (
 
 type VecFloat64 []float64
 
+func NewZeroVecFloat64(size int) VecFloat64 {
+	vec := VecFloat64(make([]float64, size))
+	vec.Fill(0)
+	return vec
+}
+
 func NewUniformVecFloat64(size int) VecFloat64 {
 	vec := VecFloat64(make([]float64, size))
-	vec.FillStandardUniform()
+	vec.FillUniform()
 	return vec
 }
 
@@ -90,7 +96,7 @@ func (vec *VecFloat64) DivBy(other VecFloat64) *VecFloat64 {
 	return vec
 }
 
-func (vec *VecFloat64) MapBy(mapfunc func (float64) float64) *VecFloat64 {
+func (vec *VecFloat64) MapBy(mapfunc func(float64) float64) *VecFloat64 {
 	for i := range *vec {
 		(*vec)[i] = mapfunc((*vec)[i])
 	}
@@ -183,7 +189,7 @@ func (vec VecFloat64) Sub(other VecFloat64) VecFloat64 {
 	return out
 }
 
-func (vec VecFloat64) Map(mapfunc func (float64) float64) VecFloat64 {
+func (vec VecFloat64) Map(mapfunc func(float64) float64) VecFloat64 {
 	out := vec.Copy()
 	out.MapBy(mapfunc)
 	return out

@@ -9,8 +9,8 @@ import (
 // Test Functions
 // ----------------------------------------------------------------------
 func ExampleNewParticle() {
-	p1 := NewParticle(3)
-	p2 := NewParticle(4)
+	p1 := NewParticle(VecFloat64{0, 0, 0}, VecFloat64{0, 0, 0})
+	p2 := NewParticle(VecFloat64{0, 0, 0, 0}, VecFloat64{0, 0, 0, 0})
 
 	fmt.Println(p1)
 	fmt.Println(p2)
@@ -22,7 +22,7 @@ func ExampleNewParticle() {
 }
 
 func ExampleUpdateCurAndBest() {
-	p := NewParticle(3)
+	p := NewParticle(VecFloat64{0, 0, 0}, VecFloat64{0, 0, 0})
 	fmt.Println(p)
 	p.TmpPos = VecFloat64{2, 4, 3}
 	p.TmpVal = 10

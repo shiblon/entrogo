@@ -17,15 +17,19 @@ func NewSwarm(dim, size int, neighborhood Topology, updater UpdateStrategy, fitn
 	swarm.Updater = updater
 	swarm.Fitness = fitness
 
-	for i := range swarm.Particles {
-		swarm.Particles[i].Init(dim)
-	}
-	return
+	swarm.Init()
+	return swarm
 }
 
-// Reset the particles to initial positions, velocities, and values.
-func (swarm *Swarm) Reset() {
-	// TODO
+// Set the particles to initial positions, velocities, and values.
+func (swarm *Swarm) Init() {
+	for i := range swarm.Particles {
+		particle := swarm.Particles[i]
+		particle.Init(swarm.Fitness.RandomPos(), swarm.Fitness.RandomVel())
+		// Also query the function and override best value, since this is an initial state.
+		particle.Val = swarm.Fitness.Query(particle.Pos)
+		particle.BestVal = particle.Val
+	}
 }
 
 func (swarm *Swarm) BatchUpdate() {

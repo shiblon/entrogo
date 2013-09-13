@@ -1,5 +1,7 @@
 package pso
 
+import "fmt"
+
 type Particle struct {
 	// Current state
 	Pos VecFloat64
@@ -18,19 +20,24 @@ type Particle struct {
 	TmpVal float64
 }
 
-func NewParticle(dim int) (par *Particle) {
+func NewParticle(pos, vel VecFloat64) (par *Particle) {
+	if len(pos) != len(vel) {
+		panic(fmt.Sprintf("Position and velocity vectors have different lengths: %d != %d", len(pos), len(vel)))
+	}
 	par = new(Particle)
-	par.Init(dim)
+	par.Init(pos, vel)
 	return
 }
 
-func (par *Particle) Init(dim int) {
-	par.Pos = make([]float64, dim)
-	par.Vel = make([]float64, dim)
+func (par *Particle) Init(pos, vel VecFloat64) {
+	dim := len(pos)
+
+	par.Pos = pos.Copy()
+	par.Vel = vel.Copy()
 	par.Val = 0
 	par.Age = 0
 
-	par.BestPos = make([]float64, dim)
+	par.BestPos = pos.Copy()
 	par.BestVal = 0
 	par.BestAge = 0
 
