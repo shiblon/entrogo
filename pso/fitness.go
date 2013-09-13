@@ -11,5 +11,5 @@ type FitnessFunction interface {
 	RandomVel() VecFloat64
 
 	// Compare two fitness values. True if (a <less fit than> b)
-	LessFit() (a, b float64) bool
+	LessFit(a, b float64) bool
 }

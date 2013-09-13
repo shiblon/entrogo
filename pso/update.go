@@ -12,8 +12,8 @@ type StandardUpdateStrategy struct {
 
 func (us StandardUpdateStrategy) MoveParticle(par *Particle, informer *Particle) {
 	adapt := 0.999
-	soc := 2.01 * math.Pow(adapt, informer.BestAge)
-	cog := 2.01 * math.Pow(adapt, par.BestAge)
+	soc := 2.01 * math.Pow(adapt, float64(informer.BestAge))
+	cog := 2.01 * math.Pow(adapt, float64(par.BestAge))
 	momentum := 1.0
 	dims := len(par.Pos)
 

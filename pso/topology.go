@@ -1,5 +1,7 @@
 package pso
 
+import "fmt"
+
 type Topology interface {
 	// Get a list of informers for this particle index.
 	Informers(i int) []int
@@ -12,7 +14,7 @@ type StarTopology struct {
 
 func (st StarTopology) Informers(pidx int) (out []int) {
 	if pidx < 0 || pidx >= st.NumParticles {
-		panic(fmt.SPrintf("Particle index %d out of range", pidx))
+		panic(fmt.Sprintf("Particle index %d out of range", pidx))
 	}
 	if st.allParticles == nil {
 		st.allParticles = make([]int, st.NumParticles)
@@ -29,7 +31,7 @@ type RingTopology struct {
 
 func (rt RingTopology) Informers(pidx int) (out []int) {
 	if pidx < 0 || pidx >= rt.NumParticles {
-		panic(fmt.SPrintf("Particle index %d out of range", pidx))
+		panic(fmt.Sprintf("Particle index %d out of range", pidx))
 	}
 	return []int{(pidx - 1) % rt.NumParticles, (pidx + 1) % rt.NumParticles}
 }
