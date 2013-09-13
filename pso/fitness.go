@@ -36,7 +36,7 @@ func (f FitnessParabola) RandomPos() VecFloat64 {
 	maxval := 5.12
 	pos := VecFloat64(make([]float64, f.Dims))
 	for i := range pos {
-		pos[i] = maxval * (2*rand.Float64() - 1) - f.Center[i]
+		pos[i] = maxval*(2*rand.Float64()-1) - f.Center[i]
 	}
 	return pos
 }
@@ -53,3 +53,5 @@ func (f FitnessParabola) RandomVel() VecFloat64 {
 func (f FitnessParabola) LessFit(a, b float64) bool {
 	return b < a
 }
+
+type FitnessSphere FitnessParabola

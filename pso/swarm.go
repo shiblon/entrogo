@@ -1,7 +1,6 @@
 package pso
 
 type Swarm struct {
-	Dim       int
 	Particles []*Particle
 
 	Neighborhood Topology
@@ -9,10 +8,9 @@ type Swarm struct {
 	Fitness      FitnessFunction
 }
 
-func NewSwarm(dim, size int, neighborhood Topology, updater UpdateStrategy, fitness FitnessFunction) (swarm *Swarm) {
+func NewSwarm(neighborhood Topology, updater UpdateStrategy, fitness FitnessFunction) (swarm *Swarm) {
 	swarm = new(Swarm)
-	swarm.Dim = dim
-	swarm.Particles = make([]*Particle, size)
+	swarm.Particles = make([]*Particle, neighborhood.Size())
 	swarm.Neighborhood = neighborhood
 	swarm.Updater = updater
 	swarm.Fitness = fitness

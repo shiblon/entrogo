@@ -3,21 +3,27 @@ package pso
 import "fmt"
 
 type Topology interface {
+	// Get the size of the (sub)swarm that this applies to.
+	Size() int
 	// Get a list of informers for this particle index.
 	Informers(i int) []int
 }
 
 type StarTopology struct {
-	NumParticles int
+	Num          int
 	allParticles []int
 }
 
+func (st StarTopology) Size() int {
+	return st.Num
+}
+
 func (st StarTopology) Informers(pidx int) (out []int) {
-	if pidx < 0 || pidx >= st.NumParticles {
+	if pidx < 0 || pidx >= st.Num {
 		panic(fmt.Sprintf("Particle index %d out of range", pidx))
 	}
 	if st.allParticles == nil {
-		st.allParticles = make([]int, st.NumParticles)
+		st.allParticles = make([]int, st.Num)
 		for i := range st.allParticles {
 			st.allParticles[i] = i
 		}
@@ -25,13 +31,15 @@ func (st StarTopology) Informers(pidx int) (out []int) {
 	return st.allParticles
 }
 
-type RingTopology struct {
-	NumParticles int
+type RingTopology int
+
+func (size RingTopology) Size() int {
+	return int(size)
 }
 
-func (rt RingTopology) Informers(pidx int) (out []int) {
-	if pidx < 0 || pidx >= rt.NumParticles {
+func (size RingTopology) Informers(pidx int) (out []int) {
+	if pidx < 0 || pidx >= int(size) {
 		panic(fmt.Sprintf("Particle index %d out of range", pidx))
 	}
-	return []int{(pidx - 1) % rt.NumParticles, (pidx + 1) % rt.NumParticles}
+	return []int{(pidx - 1) % int(size), (pidx + 1) % int(size)}
 }
