@@ -30,8 +30,6 @@ func NewParticle(pos, vel VecFloat64) (par *Particle) {
 }
 
 func (par *Particle) Init(pos, vel VecFloat64) {
-	dim := len(pos)
-
 	par.Pos = pos.Copy()
 	par.Vel = vel.Copy()
 	par.Val = 0
@@ -41,8 +39,9 @@ func (par *Particle) Init(pos, vel VecFloat64) {
 	par.BestVal = 0
 	par.BestAge = 0
 
-	par.TmpPos = make([]float64, dim)
-	par.TmpVel = make([]float64, dim)
+	par.TmpPos = pos.Copy()
+	par.TmpVel = vel.Copy()
+	par.TmpVal = 0
 }
 
 // Update the current state with the scratch state. This is useful if we are
@@ -62,4 +61,12 @@ func (par *Particle) UpdateBest() {
 	par.BestAge = 0
 	par.BestPos.Replace(par.Pos)
 	par.BestVal = par.Val
+}
+
+// Stringer
+func (par Particle) String() string {
+	return fmt.Sprintf(
+		"  x=%v  x'=%v\n  f=%v  a=%v\n  bx=%v\n  bf=%v  ba=%v\n  tx=%v  tx'=%v\n  tf=%v",
+		par.Pos, par.Vel, par.Val, par.Age, par.BestPos, par.BestVal, par.BestAge, par.TmpPos,
+		par.TmpVel, par.TmpVal)
 }

@@ -41,5 +41,10 @@ func (size RingTopology) Informers(pidx int) (out []int) {
 	if pidx < 0 || pidx >= int(size) {
 		panic(fmt.Sprintf("Particle index %d out of range", pidx))
 	}
-	return []int{(pidx - 1) % int(size), (pidx + 1) % int(size)}
+	// Go has crappy and useless negative modulus semantics.
+	lower := (pidx - 1) % int(size)
+	if lower < 0 {
+		lower += int(size)
+	}
+	return []int{lower, (pidx + 1) % int(size)}
 }

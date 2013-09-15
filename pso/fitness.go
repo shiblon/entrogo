@@ -1,6 +1,7 @@
 package pso
 
 import (
+	"fmt"
 	"math/rand"
 )
 
@@ -45,8 +46,9 @@ func (f FitnessParabola) RandomVel() VecFloat64 {
 	maxval := 5.12
 	vel := VecFloat64(make([]float64, f.Dims))
 	for i := range vel {
-		vel[i] = 2 * maxval * (2*rand.Float64() - 1)
+		vel[i] = maxval * (2*rand.Float64() - 1)
 	}
+	fmt.Println("rand vel:", vel)
 	return vel
 }
 

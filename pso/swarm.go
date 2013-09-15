@@ -29,12 +29,13 @@ func (swarm *Swarm) Init() {
 		// Also query the function and override best value, since this is an initial state.
 		particle.Val = swarm.Fitness.Query(particle.Pos)
 		particle.BestVal = particle.Val
+		particle.TmpVal = particle.Val
 	}
 }
 
 func (swarm *Swarm) BatchUpdate() {
 	for i := range swarm.Particles {
-		particle := swarm.Particles[i]
+		particle := &swarm.Particles[i]
 		// Find the neighbor.
 		best_n := 0
 		informers := swarm.Neighborhood.Informers(i)
@@ -43,19 +44,24 @@ func (swarm *Swarm) BatchUpdate() {
 				best_n = n
 			}
 		}
-		swarm.Updater.MoveParticle(&particle, swarm.Particles[best_n])
-
+		best_particle_index := informers[best_n]
+		swarm.Updater.MoveParticle(particle, swarm.Particles[best_particle_index])
 		// Now the TmpPos is set. Call the function for a new value.
 		particle.TmpVal = swarm.Fitness.Query(particle.TmpPos)
+
 	}
 
 	// The whole batch has new temporary coordinates and values. Copy them over
 	// all at once.
 	for i := range swarm.Particles {
-		particle := swarm.Particles[i]
+		// TODO: there has to be a better way than just silently doing the
+		// wrong thing when we forget to take an address...
+		particle := &swarm.Particles[i]
 		particle.UpdateCur()
+		fmt.Println("best, cur:", particle.BestVal, particle.Val)
 		if swarm.Fitness.LessFit(particle.BestVal, particle.Val) {
 			particle.UpdateBest()
+			fmt.Println("Updated best")
 		}
 	}
 }
@@ -63,7 +69,7 @@ func (swarm *Swarm) BatchUpdate() {
 func (swarm Swarm) String() string {
 	s := "Particles\n"
 	for i := range swarm.Particles {
-		s += fmt.Sprintf("  %02d: %#v\n", i, swarm.Particles[i])
+		s += fmt.Sprintf("  %02d: %v\n", i, swarm.Particles[i])
 	}
 	return s
 }
