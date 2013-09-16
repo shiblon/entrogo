@@ -14,9 +14,9 @@ func NewZeroVecFloat64(size int) VecFloat64 {
 	return vec
 }
 
-func NewUniformVecFloat64(size int) VecFloat64 {
+func NewUniformVecFloat64(size int, rgen *rand.Rand) VecFloat64 {
 	vec := VecFloat64(make([]float64, size))
-	vec.FillUniform()
+	vec.FillUniform(rgen)
 	return vec
 }
 
@@ -27,9 +27,9 @@ func (vec *VecFloat64) Fill(val float64) *VecFloat64 {
 	return vec
 }
 
-func (vec *VecFloat64) FillUniform() *VecFloat64 {
+func (vec *VecFloat64) FillUniform(rgen *rand.Rand) *VecFloat64 {
 	for i := range *vec {
-		(*vec)[i] = rand.Float64()
+		(*vec)[i] = rgen.Float64()
 	}
 	return vec
 }

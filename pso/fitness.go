@@ -1,7 +1,6 @@
 package pso
 
 import (
-	"fmt"
 	"math/rand"
 )
 
@@ -10,10 +9,10 @@ type FitnessFunction interface {
 	Query(VecFloat64) float64
 
 	// Produces a random position from the function's domain.
-	RandomPos() VecFloat64
+	RandomPos(rgen *rand.Rand) VecFloat64
 
 	// Produces a random velocity suitable for exploring the function's domain.
-	RandomVel() VecFloat64
+	RandomVel(rgen *rand.Rand) VecFloat64
 
 	// Compare two fitness values. True if (a <less fit than> b)
 	LessFit(a, b float64) bool
@@ -33,22 +32,21 @@ func (f FitnessParabola) Query(pos VecFloat64) float64 {
 	return s
 }
 
-func (f FitnessParabola) RandomPos() VecFloat64 {
+func (f FitnessParabola) RandomPos(rgen *rand.Rand) VecFloat64 {
 	maxval := 5.12
 	pos := VecFloat64(make([]float64, f.Dims))
 	for i := range pos {
-		pos[i] = maxval*(2*rand.Float64()-1) - f.Center[i]
+		pos[i] = maxval*(2*rgen.Float64()-1) - f.Center[i]
 	}
 	return pos
 }
 
-func (f FitnessParabola) RandomVel() VecFloat64 {
+func (f FitnessParabola) RandomVel(rgen *rand.Rand) VecFloat64 {
 	maxval := 5.12
 	vel := VecFloat64(make([]float64, f.Dims))
 	for i := range vel {
-		vel[i] = maxval * (2*rand.Float64() - 1)
+		vel[i] = maxval * (2*rgen.Float64() - 1)
 	}
-	fmt.Println("rand vel:", vel)
 	return vel
 }
 

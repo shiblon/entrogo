@@ -1,6 +1,9 @@
 package pso
 
-import "fmt"
+import (
+	"fmt"
+	"math/rand"
+)
 
 type Particle struct {
 	// Current state
@@ -14,43 +17,38 @@ type Particle struct {
 	BestVal float64
 	BestAge int32
 
-	// Scratch space for delayed batch updates.
-	TmpPos VecFloat64
-	TmpVel VecFloat64
-	TmpVal float64
+	// Random number generator. Each particle gets its own.
+	randGen *rand.Rand
 }
 
-func NewParticle(pos, vel VecFloat64) (par *Particle) {
+func NewParticle(pos, vel VecFloat64, val float64, rgen *rand.Rand) (par *Particle) {
 	if len(pos) != len(vel) {
 		panic(fmt.Sprintf("Position and velocity vectors have different lengths: %d != %d", len(pos), len(vel)))
 	}
 	par = &Particle{}
-	par.Init(pos, vel)
+	par.randGen = rgen
+	par.Init(pos, vel, val)
 	return
 }
 
-func (par *Particle) Init(pos, vel VecFloat64) {
+func (par *Particle) Init(pos, vel VecFloat64, val float64) {
 	par.Pos = pos.Copy()
 	par.Vel = vel.Copy()
-	par.Val = 0
+	par.Val = val
 	par.Age = 0
 
 	par.BestPos = pos.Copy()
-	par.BestVal = 0
+	par.BestVal = val
 	par.BestAge = 0
-
-	par.TmpPos = pos.Copy()
-	par.TmpVel = vel.Copy()
-	par.TmpVal = 0
 }
 
 // Update the current state with the scratch state. This is useful if we are
 // doing batch updates and need to compute other particle values based on a
 // consistent time slice.
-func (par *Particle) UpdateCur() {
-	par.Pos.Replace(par.TmpPos)
-	par.Vel.Replace(par.TmpVel)
-	par.Val = par.TmpVal
+func (par *Particle) UpdateCur(pos, vel VecFloat64, val float64) {
+	par.Pos.Replace(pos)
+	par.Vel.Replace(vel)
+	par.Val = val
 	par.BestAge++
 	par.Age++
 }
@@ -66,7 +64,6 @@ func (par *Particle) UpdateBest() {
 // Stringer
 func (par Particle) String() string {
 	return fmt.Sprintf(
-		"  x=%v  x'=%v\n  f=%v  a=%v\n  bx=%v\n  bf=%v  ba=%v\n  tx=%v  tx'=%v\n  tf=%v",
-		par.Pos, par.Vel, par.Val, par.Age, par.BestPos, par.BestVal, par.BestAge, par.TmpPos,
-		par.TmpVel, par.TmpVal)
+		"  x=%v  x'=%v\n  f=%v  a=%v\n  bx=%v\n  bf=%v  ba=%v",
+		par.Pos, par.Vel, par.Val, par.Age, par.BestPos, par.BestVal, par.BestAge)
 }
