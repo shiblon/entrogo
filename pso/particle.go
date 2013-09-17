@@ -3,15 +3,16 @@ package pso
 import (
 	"fmt"
 	"math/rand"
+	"monson/pso/vec"
 )
 
 type Particle struct {
 	// Current state
-	Pos, Vel VecFloat64
+	Pos, Vel vec.Vec
 	Val      float64
 
 	// Current best state
-	BestPos VecFloat64
+	BestPos vec.Vec
 	BestVal float64
 
 	// Additional state
@@ -19,7 +20,7 @@ type Particle struct {
 	Bounces int32
 
 	// Scratch state
-	TempPos, TempVel VecFloat64
+	TempPos, TempVel vec.Vec
 	TempVal          float64
 	TempBounced      bool
 
@@ -27,9 +28,9 @@ type Particle struct {
 	randGen *rand.Rand
 }
 
-func NewParticle(pos, vel VecFloat64, val float64, rgen *rand.Rand) (par *Particle) {
+func NewParticle(pos, vel vec.Vec, val float64, rgen *rand.Rand) (par *Particle) {
 	if len(pos) != len(vel) {
-		panic(fmt.Sprintf("Position and velocity vectors have different lengths: %d != %d", len(pos), len(vel)))
+		panic(fmt.Sprintf("Position and velocity vecs have different lengths: %d != %d", len(pos), len(vel)))
 	}
 	par = &Particle{}
 	par.randGen = rgen
@@ -37,7 +38,7 @@ func NewParticle(pos, vel VecFloat64, val float64, rgen *rand.Rand) (par *Partic
 	return
 }
 
-func (par *Particle) Init(pos, vel VecFloat64, val float64) {
+func (par *Particle) Init(pos, vel vec.Vec, val float64) {
 	par.Pos = pos.Copy()
 	par.Vel = vel.Copy()
 	par.Val = val

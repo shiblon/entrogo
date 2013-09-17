@@ -2,6 +2,8 @@ package pso
 
 import (
 	"math"
+	"math/rand"
+	"monson/pso/vec"
 )
 
 type UpdateStrategy interface {
@@ -18,6 +20,10 @@ type UpdateStrategy interface {
 
 type StandardUpdateStrategy struct {
 	DomainDiameter float64
+}
+
+func newUniformVec(size int, r *rand.Rand) vec.Vec {
+	return vec.New(size).MapBy(func(_ int, _ float64) float64 { return r.Float64() })
 }
 
 func (us StandardUpdateStrategy) UpdateSingleTempState(swarm *Swarm, pidx int) {
@@ -42,17 +48,13 @@ func (us StandardUpdateStrategy) UpdateSingleTempState(swarm *Swarm, pidx int) {
 	soc := 2.05 * math.Pow(adapt, float64(informer.BestAge))
 	cog := 2.05 * math.Pow(adapt, float64(par.BestAge))
 
-	rand_soc := NewUniformVecFloat64(dims, par.randGen).SMul(cog)
-	rand_cog := NewUniformVecFloat64(dims, par.randGen).SMul(soc)
+	rand_soc := newUniformVec(dims, par.randGen).SMulBy(cog)
+	rand_cog := newUniformVec(dims, par.randGen).SMulBy(soc)
 
-	to_personal := par.BestPos.Sub(par.Pos)
-	to_informer := informer.BestPos.Sub(par.Pos)
-
-	(&to_personal).MulBy(rand_cog)
-	(&to_informer).MulBy(rand_soc)
-
-	acc := to_personal.Add(to_informer)
-	vel := par.Vel.SMul(momentum).Add(acc)
+	to_informer := informer.BestPos.Sub(par.Pos).MulBy(rand_soc)
+	// Compute the personal vector and add to the neighbor vector.
+	acc := par.BestPos.Sub(par.Pos).MulBy(rand_cog).AddBy(to_informer)
+	vel := par.Vel.SMul(momentum).AddBy(acc)
 	pos := par.Pos.Add(vel)
 
 	// Cap the velocity if necessary.
@@ -76,8 +78,8 @@ func (us StandardUpdateStrategy) UpdateSingleTempState(swarm *Swarm, pidx int) {
 }
 
 func (us StandardUpdateStrategy) doBounce(particle *Particle, springiness float64) {
-	(&particle.TempVel).Negate()
-	particle.TempPos = particle.Pos.SMul(1 + springiness).Sub(particle.TempPos.SMul(springiness))
+	particle.TempVel.Negate()
+	particle.TempPos.SMulBy(springiness).Negate().AddBy(particle.Pos.SMul(1 + springiness))
 	particle.TempBounced = true
 }
 

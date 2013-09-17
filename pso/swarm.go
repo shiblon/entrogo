@@ -3,6 +3,7 @@ package pso
 import (
 	"fmt"
 	"math/rand"
+	"monson/pso/fitness"
 )
 
 type Swarm struct {
@@ -10,15 +11,15 @@ type Swarm struct {
 
 	Neighborhood Topology
 	Updater      UpdateStrategy
-	Fitness      FitnessFunction
+	Fitness      fitness.Function
 }
 
-func NewSwarm(neighborhood Topology, updater UpdateStrategy, fitness FitnessFunction, randSeed int64) (swarm *Swarm) {
+func NewSwarm(neighborhood Topology, updater UpdateStrategy, fitfunc fitness.Function, randSeed int64) (swarm *Swarm) {
 	swarm = new(Swarm)
 	swarm.Particles = make([]*Particle, neighborhood.Size())
 	swarm.Neighborhood = neighborhood
 	swarm.Updater = updater
-	swarm.Fitness = fitness
+	swarm.Fitness = fitfunc
 
 	seedGenerator := rand.New(rand.NewSource(randSeed))
 

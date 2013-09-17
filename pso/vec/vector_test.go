@@ -1,4 +1,4 @@
-package pso
+package vec
 
 import (
 	"fmt"
@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-func EqualElements(a, b VecFloat64) bool {
+func EqualElements(a, b Vec) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for i := range a {
-		if a[i] != b[i] {
+	for i, v := range a {
+		if v != b[i] {
 			return false
 		}
 	}
@@ -19,15 +19,15 @@ func EqualElements(a, b VecFloat64) bool {
 }
 
 func TestFill(t *testing.T) {
-	v1 := VecFloat64{1, 2, 4, 5, 7}
+	v1 := Vec{1, 2, 4, 5, 7}
 	v1.Fill(2.1)
-	if !EqualElements(v1, VecFloat64{2.1, 2.1, 2.1, 2.1, 2.1}) {
+	if !EqualElements(v1, Vec{2.1, 2.1, 2.1, 2.1, 2.1}) {
 		t.Error("Fill is broken")
 	}
 }
 
 func TestCopy(t *testing.T) {
-	v1 := VecFloat64{1, 2, 3, 4}
+	v1 := Vec{1, 2, 3, 4}
 	v2 := v1.Copy()
 
 	if !EqualElements(v1, v2) {
@@ -40,46 +40,47 @@ func TestCopy(t *testing.T) {
 }
 
 func TestReplace(t *testing.T) {
-	v := VecFloat64{1, 2, 3, 4}
-	v.Replace(VecFloat64{2, 3, 2, 3})
+	v := Vec{1, 2, 3, 4}
+	v.Replace(Vec{2, 3, 2, 3})
 
-	if !EqualElements(v, VecFloat64{2, 3, 2, 3}) {
+	if !EqualElements(v, Vec{2, 3, 2, 3}) {
 		t.Error("Failed to Replace")
 	}
 }
 
 func TestNegate(t *testing.T) {
-	v := VecFloat64{1, 2, 3, 4}
+	v := Vec{1, 2, 3, 4}
+	good := Vec{-1, -2, -3, -4}
 	v.Negate()
 
-	if !EqualElements(v, VecFloat64{-1, -2, -3, -4}) {
-		t.Error("Vector Negate is broken")
+	if !EqualElements(v, good) {
+		t.Error(fmt.Sprintf("Vector Negate is broken: %v != %v", v, good))
 	}
 }
 
-func TestIncrBy(t *testing.T) {
-	v := VecFloat64{1, 2, 3, 4}
-	v.IncrBy(VecFloat64{2, 2, 3, 3})
+func TestAddBy(t *testing.T) {
+	v := Vec{1, 2, 3, 4}
+	v.AddBy(Vec{2, 2, 3, 3})
 
-	if !EqualElements(v, VecFloat64{3, 4, 6, 7}) {
-		t.Error("Vector IncrBy is broken")
+	if !EqualElements(v, Vec{3, 4, 6, 7}) {
+		t.Error("Vector AddBy is broken")
 	}
 }
 
-func TestDecrBy(t *testing.T) {
-	v := VecFloat64{1, 2, 3, 4}
-	v.DecrBy(VecFloat64{2, 2, 3, 3})
+func TestSubBy(t *testing.T) {
+	v := Vec{1, 2, 3, 4}
+	v.SubBy(Vec{2, 2, 3, 3})
 
-	if !EqualElements(v, VecFloat64{-1, 0, 0, 1}) {
-		t.Error("Vector DecrBy is broken")
+	if !EqualElements(v, Vec{-1, 0, 0, 1}) {
+		t.Error("Vector SubBy is broken")
 	}
 }
 
-func TestNeg(t *testing.T) {
-	vin := VecFloat64{1, 2, 3, 4}
-	v := vin.Neg()
+func TestNegated(t *testing.T) {
+	vin := Vec{1, 2, 3, 4}
+	v := vin.Negated()
 
-	if !EqualElements(v, VecFloat64{-1, -2, -3, -4}) {
+	if !EqualElements(v, Vec{-1, -2, -3, -4}) {
 		t.Error("Vector Neg is broken")
 	}
 
@@ -89,10 +90,10 @@ func TestNeg(t *testing.T) {
 }
 
 func TestAdd(t *testing.T) {
-	vin := VecFloat64{1, 2, 3, 4}
-	v := vin.Add(VecFloat64{2, 4, 6, 8})
+	vin := Vec{1, 2, 3, 4}
+	v := vin.Add(Vec{2, 4, 6, 8})
 
-	if !EqualElements(v, VecFloat64{3, 6, 9, 12}) {
+	if !EqualElements(v, Vec{3, 6, 9, 12}) {
 		t.Error("Vector Add is broken")
 	}
 
@@ -102,10 +103,10 @@ func TestAdd(t *testing.T) {
 }
 
 func TestSub(t *testing.T) {
-	vin := VecFloat64{1, 2, 3, 4}
-	v := vin.Sub(VecFloat64{2, 4, 6, 8})
+	vin := Vec{1, 2, 3, 4}
+	v := vin.Sub(Vec{2, 4, 6, 8})
 
-	if !EqualElements(v, VecFloat64{-1, -2, -3, -4}) {
+	if !EqualElements(v, Vec{-1, -2, -3, -4}) {
 		t.Error("Vector Sub is broken")
 	}
 
@@ -115,20 +116,23 @@ func TestSub(t *testing.T) {
 }
 
 func ExampleMap() {
-	v := VecFloat64{1, 2, 3, 4}
+	v := Vec{1, 2, 3, 4}
 	fmt.Println(v)
-	v.MapBy(func(a float64) float64 { return math.Sqrt(a) })
+	v.MapBy(func(_ int, a float64) float64 { return math.Sqrt(a) })
+	x := v.Map(func(i int, a float64) float64 { return float64(i)*a })
 	fmt.Println(v)
+	fmt.Println(x)
 
 	// Output:
 	// [1 2 3 4]
 	// [1 1.4142135623730951 1.7320508075688772 2]
+	// [0 1.4142135623730951 3.4641016151377544 6]
 }
 
 func ExampleNorm() {
-	fmt.Println(VecFloat64{1, 2, 3, 4}.Norm(2))
-	fmt.Println(VecFloat64{-1, 2, -3, 4}.Norm(1))
-	fmt.Println(VecFloat64{-1, 2, -3, 4}.Norm(3))
+	fmt.Println(Vec{1, 2, 3, 4}.Norm(2))
+	fmt.Println(Vec{-1, 2, -3, 4}.Norm(1))
+	fmt.Println(Vec{-1, 2, -3, 4}.Norm(3))
 
 	// Output:
 	// 5.477225575051661
@@ -137,16 +141,16 @@ func ExampleNorm() {
 }
 
 func ExampleDot() {
-	fmt.Println(VecFloat64{1, 2, 3, 4}.Dot(VecFloat64{2, 3, 1, 1}))
+	fmt.Println(Vec{1, 2, 3, 4}.Dot(Vec{2, 3, 1, 1}))
 
 	// Output:
 	// 15
 }
 
-func ExampleSIncrBy() {
-	v := VecFloat64{1, 2, 4, 3}
+func ExampleSAddBy() {
+	v := Vec{1, 2, 4, 3}
 	fmt.Println(v)
-	v.SIncrBy(2.5)
+	v.SAddBy(2.5)
 	fmt.Println(v)
 
 	// Output:
@@ -154,10 +158,10 @@ func ExampleSIncrBy() {
 	// [3.5 4.5 6.5 5.5]
 }
 
-func ExampleSDecrBy() {
-	v := VecFloat64{1, 2, 4, 3}
+func ExampleSSubBy() {
+	v := Vec{1, 2, 4, 3}
 	fmt.Println(v)
-	v.SDecrBy(2.5)
+	v.SSubBy(2.5)
 	fmt.Println(v)
 
 	// Output:
@@ -166,7 +170,7 @@ func ExampleSDecrBy() {
 }
 
 func ExampleSMulBy() {
-	v := VecFloat64{1, 3}
+	v := Vec{1, 3}
 	fmt.Println(v)
 	v.SMulBy(3.1)
 	fmt.Println(v)
@@ -177,7 +181,7 @@ func ExampleSMulBy() {
 }
 
 func ExampleSDivBy() {
-	v := VecFloat64{1, 3}
+	v := Vec{1, 3}
 	fmt.Println(v)
 	v.SDivBy(2)
 	fmt.Println(v)
@@ -188,29 +192,36 @@ func ExampleSDivBy() {
 }
 
 func ExampleSAdd() {
-	fmt.Println(VecFloat64{1, 5, 2}.SAdd(2))
+	fmt.Println(Vec{1, 5, 2}.SAdd(2))
 
 	// Output:
 	// [3 7 4]
 }
 
 func ExampleSSub() {
-	fmt.Println(VecFloat64{1, 5, 2}.SSub(2))
+	fmt.Println(Vec{1, 5, 2}.SSub(2))
 
 	// Output:
 	// [-1 3 0]
 }
 
 func ExampleSMul() {
-	fmt.Println(VecFloat64{1, 5, 2}.SMul(2))
+	fmt.Println(Vec{1, 5, 2}.SMul(2))
 
 	// Output:
 	// [2 10 4]
 }
 
 func ExampleSDiv() {
-	fmt.Println(VecFloat64{1, 5, 2}.SDiv(2))
+	fmt.Println(Vec{1, 5, 2}.SDiv(2))
 
 	// Output:
 	// [0.5 2.5 1]
+}
+
+func ExampleMag() {
+	fmt.Println(Vec{3, 4, -5}.Mag())
+
+	// Output:
+	// 7.0710678118654755
 }

@@ -1,19 +1,20 @@
-package pso
+package fitness
 
 import (
 	"math"
 	"math/rand"
+	"monson/pso/vec"
 )
 
-type FitnessFunction interface {
+type Function interface {
 	// The main entry point for asking a fitness function questions.
-	Query(VecFloat64) float64
+	Query(vec.Vec) float64
 
 	// Produces a random position from the function's domain.
-	RandomPos(rgen *rand.Rand) VecFloat64
+	RandomPos(rgen *rand.Rand) vec.Vec
 
 	// Produces a random velocity suitable for exploring the function's domain.
-	RandomVel(rgen *rand.Rand) VecFloat64
+	RandomVel(rgen *rand.Rand) vec.Vec
 
 	// Compare two fitness values. True if (a <less fit than> b)
 	LessFit(a, b float64) bool
@@ -23,23 +24,23 @@ type FitnessFunction interface {
 }
 
 // Sample uniformly from a cube with corners at (min, min, min, ...), (max, max, max, ...)
-func UniformCubeSample(dims int, min, max float64, rgen *rand.Rand) (vec VecFloat64) {
-	vec = VecFloat64(make([]float64, dims))
-	for i := range vec {
-		vec[i] = min + rgen.Float64()*(max-min)
+func UniformCubeSample(dims int, min, max float64, rgen *rand.Rand) (v vec.Vec) {
+	v = vec.Vec(make([]float64, dims))
+	for i := range v {
+		v[i] = min + rgen.Float64()*(max-min)
 	}
-	return vec
+	return v
 }
 
 // ----------------------------------------------------------------------
 // Parabola/Sphere
 // ----------------------------------------------------------------------
-type FitnessParabola struct {
+type Parabola struct {
 	Dims   int
-	Center VecFloat64
+	Center vec.Vec
 }
 
-func (f FitnessParabola) Query(pos VecFloat64) float64 {
+func (f Parabola) Query(pos vec.Vec) float64 {
 	s := 0.0
 	for i := range pos {
 		p := pos[i] - f.Center[i]
@@ -48,33 +49,33 @@ func (f FitnessParabola) Query(pos VecFloat64) float64 {
 	return s
 }
 
-func (f FitnessParabola) RandomPos(rgen *rand.Rand) VecFloat64 {
+func (f Parabola) RandomPos(rgen *rand.Rand) vec.Vec {
 	return UniformCubeSample(f.Dims, -5.12, 5.12, rgen).Sub(f.Center)
 }
 
-func (f FitnessParabola) RandomVel(rgen *rand.Rand) VecFloat64 {
+func (f Parabola) RandomVel(rgen *rand.Rand) vec.Vec {
 	return UniformCubeSample(f.Dims, -5.12*2, 5.12*2, rgen)
 }
 
-func (f FitnessParabola) LessFit(a, b float64) bool {
+func (f Parabola) LessFit(a, b float64) bool {
 	return b < a
 }
 
-func (f FitnessParabola) RoughDomainDiameter() float64 {
+func (f Parabola) RoughDomainDiameter() float64 {
 	return math.Sqrt(float64(f.Dims) * (5.12 * 2) * (5.12 * 2))
 }
 
-type FitnessSphere FitnessParabola
+type Sphere Parabola
 
 // ----------------------------------------------------------------------
 // Rastrigin
 // ----------------------------------------------------------------------
-type FitnessRastrigin struct {
+type Rastrigin struct {
 	Dims   int
-	Center VecFloat64
+	Center vec.Vec
 }
 
-func (f FitnessRastrigin) Query(pos VecFloat64) float64 {
+func (f Rastrigin) Query(pos vec.Vec) float64 {
 	s := 10.0 * float64(f.Dims)
 	for i := range pos {
 		p := pos[i] - f.Center[i]
@@ -83,18 +84,18 @@ func (f FitnessRastrigin) Query(pos VecFloat64) float64 {
 	return s
 }
 
-func (f FitnessRastrigin) RandomPos(rgen *rand.Rand) VecFloat64 {
+func (f Rastrigin) RandomPos(rgen *rand.Rand) vec.Vec {
 	return UniformCubeSample(f.Dims, -5.12, 5.12, rgen).Sub(f.Center)
 }
 
-func (f FitnessRastrigin) RandomVel(rgen *rand.Rand) VecFloat64 {
+func (f Rastrigin) RandomVel(rgen *rand.Rand) vec.Vec {
 	return UniformCubeSample(f.Dims, -5.12*2, 5.12*2, rgen)
 }
 
-func (f FitnessRastrigin) LessFit(a, b float64) bool {
+func (f Rastrigin) LessFit(a, b float64) bool {
 	return b < a
 }
 
-func (f FitnessRastrigin) RoughDomainDiameter() float64 {
+func (f Rastrigin) RoughDomainDiameter() float64 {
 	return math.Sqrt(float64(f.Dims) * (5.12 * 2) * (5.12 * 2))
 }

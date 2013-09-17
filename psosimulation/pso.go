@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"monson/pso"
+	"monson/pso/fitness"
+	"monson/pso/vec"
 	"runtime"
 )
 
@@ -14,9 +16,10 @@ func main() {
 	seed := 1
 	numParticles := 4
 
-	// fitness := pso.FitnessParabola{Dims: dims, Center: pso.NewZeroVecFloat64(dims)}
-	center := pso.NewZeroVecFloat64(dims)
-	fitness := pso.FitnessRastrigin{Dims: dims, Center: center}
+	center := vec.NewFilled(2.0, dims)
+
+	// fitness := fitness.Parabola{Dims: dims, Center: pso.New(dims)}
+	fitness := fitness.Rastrigin{Dims: dims, Center: center}
 
 	// topology := pso.NewRingTopology(numParticles)
 	topology := pso.NewStarTopology(numParticles)
