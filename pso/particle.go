@@ -7,15 +7,21 @@ import (
 
 type Particle struct {
 	// Current state
-	Pos VecFloat64
-	Vel VecFloat64
-	Val float64
-	Age int32
+	Pos, Vel VecFloat64
+	Val      float64
 
 	// Current best state
 	BestPos VecFloat64
 	BestVal float64
+
+	// Additional state
 	BestAge int32
+	Bounces int32
+
+	// Scratch state
+	TempPos, TempVel VecFloat64
+	TempVal          float64
+	TempBounced      bool
 
 	// Random number generator. Each particle gets its own.
 	randGen *rand.Rand
@@ -35,22 +41,29 @@ func (par *Particle) Init(pos, vel VecFloat64, val float64) {
 	par.Pos = pos.Copy()
 	par.Vel = vel.Copy()
 	par.Val = val
-	par.Age = 0
 
 	par.BestPos = pos.Copy()
 	par.BestVal = val
+
 	par.BestAge = 0
+	par.Bounces = 0
+
+	par.TempPos = pos.Copy()
+	par.TempVel = vel.Copy()
+	par.TempVal = val
 }
 
 // Update the current state with the scratch state. This is useful if we are
 // doing batch updates and need to compute other particle values based on a
 // consistent time slice.
-func (par *Particle) UpdateCur(pos, vel VecFloat64, val float64) {
-	par.Pos.Replace(pos)
-	par.Vel.Replace(vel)
-	par.Val = val
+func (par *Particle) UpdateCur() {
+	par.Pos.Replace(par.TempPos)
+	par.Vel.Replace(par.TempVel)
+	par.Val = par.TempVal
+	if par.TempBounced {
+		par.Bounces++
+	}
 	par.BestAge++
-	par.Age++
 }
 
 // We have determined that the current position is better than the current
@@ -64,6 +77,6 @@ func (par *Particle) UpdateBest() {
 // Stringer
 func (par Particle) String() string {
 	return fmt.Sprintf(
-		"  x=%v  x'=%v\n  f=%v  a=%v\n  bx=%v\n  bf=%v  ba=%v",
-		par.Pos, par.Vel, par.Val, par.Age, par.BestPos, par.BestVal, par.BestAge)
+		"  x=%v  x'=%v\n  f=%v\n  bx=%v\n  bf=%v  ba=%v\n  Tx=%v  Tx'=%v\n  Tv=%v  Tb=%v\n  bounces=%v",
+		par.Pos, par.Vel, par.Val, par.BestPos, par.BestVal, par.BestAge, par.TempPos, par.TempVel, par.TempVal, par.TempBounced, par.Bounces)
 }

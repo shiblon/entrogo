@@ -10,41 +10,66 @@ type Topology interface {
 }
 
 type StarTopology struct {
-	Num          int
-	allParticles []int
+	num         int
+	best        int
+	second_best int
+
+	topoCache map[int][]int
+}
+
+func NewStarTopology(numParticles int) StarTopology {
+	return StarTopology{num: numParticles, topoCache: make(map[int][]int)}
 }
 
 func (st StarTopology) Size() int {
-	return st.Num
+	return st.num
 }
 
-func (st StarTopology) Informers(pidx int) (out []int) {
-	if pidx < 0 || pidx >= st.Num {
+func (st StarTopology) Informers(pidx int) []int {
+	if pidx < 0 || pidx >= st.num {
 		panic(fmt.Sprintf("Particle index %d out of range", pidx))
 	}
-	if st.allParticles == nil {
-		st.allParticles = make([]int, st.Num)
-		for i := range st.allParticles {
-			st.allParticles[i] = i
+	inf, ok := st.topoCache[pidx]
+	if !ok {
+		inf = make([]int, 0, st.num)
+		for i := 0; i < st.num; i++ {
+			if i != pidx { // TODO: allow self links?
+				inf = append(inf, i)
+			}
 		}
+		st.topoCache[pidx] = inf
 	}
-	return st.allParticles
+	return inf
 }
 
-type RingTopology int
-
-func (size RingTopology) Size() int {
-	return int(size)
+type RingTopology struct {
+	num       int
+	topoCache map[int][]int
 }
 
-func (size RingTopology) Informers(pidx int) (out []int) {
-	if pidx < 0 || pidx >= int(size) {
+func NewRingTopology(numParticles int) RingTopology {
+	return RingTopology{numParticles, make(map[int][]int)}
+}
+
+func (rt RingTopology) Size() int {
+	return int(rt.num)
+}
+
+func (rt RingTopology) Informers(pidx int) (out []int) {
+	if pidx < 0 || pidx >= rt.num {
 		panic(fmt.Sprintf("Particle index %d out of range", pidx))
 	}
-	// Go has crappy and useless negative modulus semantics.
-	lower := (pidx - 1) % int(size)
-	if lower < 0 {
-		lower += int(size)
+	inf, ok := rt.topoCache[pidx]
+	if !ok {
+		inf = make([]int, 2)
+		lower := (pidx - 1) % rt.num
+		// Go has crappy and useless negative modulus semantics.
+		if lower < 0 {
+			lower += rt.num
+		}
+		inf[0] = lower
+		inf[1] = (pidx + 1) % rt.num
+		rt.topoCache[pidx] = inf
 	}
-	return []int{lower, (pidx + 1) % int(size)}
+	return inf
 }
