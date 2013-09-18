@@ -3,7 +3,7 @@ package pso
 import (
 	"math"
 	"monson/pso/fitness"
-	"monson/pso/swarm"
+	"monson/pso/particle"
 	"monson/pso/topology"
 	"monson/vec"
 )
@@ -19,11 +19,11 @@ type Updater interface {
 	Update() int
 
 	// BestParticle returns the particle with the fittest BestVal.
-	BestParticle() *swarm.Particle
+	BestParticle() *particle.Particle
 }
 
 type standardUpdater struct {
-	Swarm    []*swarm.Particle
+	Swarm    []*particle.Particle
 	Topology topology.Topology
 	Fitness  fitness.Function
 
@@ -54,7 +54,7 @@ func (u *standardUpdater) Initialized() bool {
 }
 
 // BestParticle returns the particle with the fittest BestVal.
-func (u *standardUpdater) BestParticle() *swarm.Particle {
+func (u *standardUpdater) BestParticle() *particle.Particle {
 	best := u.Swarm[0]
 	for _, p := range u.Swarm[1:] {
 		if u.Fitness.LessFit(best.BestVal, p.BestVal) {
@@ -67,12 +67,12 @@ func (u *standardUpdater) BestParticle() *swarm.Particle {
 // init creates all of the particles in the swarm and evaluates the fitness function
 // for all of them.
 func (u *standardUpdater) init() {
-	u.Swarm = make([]*swarm.Particle, u.Topology.Size())
+	u.Swarm = make([]*particle.Particle, u.Topology.Size())
 
 	// Evaluate the function concurrently.
-	particles := make(chan *swarm.Particle)
+	particles := make(chan *particle.Particle)
 	for _ = range u.Swarm {
-		go func() { particles <- swarm.NewRandomParticle(u.Fitness, true) }()
+		go func() { particles <- particle.NewRandomParticle(u.Fitness, true) }()
 	}
 
 	// Set up the particles.
@@ -141,12 +141,12 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 	cog := 2.05
 
 	particle := u.Swarm[pidx]
-	informer := u.Swarm[u.findBestNeighbor(pidx)]
+	informer := u.Swarm[u.Topology.BestNeighbor(pidx, u.Swarm, u.Fitness.LessFit)]
 	dims := len(particle.Pos)
 
 	if adapt != 1.0 {
-		soc *= math.Pow(adapt, float64(informer.BestAge))
-		cog *= math.Pow(adapt, float64(particle.BestAge))
+		soc *= math.Pow(adapt, float64(informer.T-informer.BestT))
+		cog *= math.Pow(adapt, float64(particle.T-particle.BestT))
 	}
 
 	rand_soc := vec.NewFFilled(dims, particle.Rand.Float64).SMulBy(soc)
@@ -159,23 +159,23 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 	// TODO: use some multiple of the diameter?
 	particle.TempVel.Replace(particle.Vel).SMulBy(momentum).AddBy(acc)
 	velmag := particle.TempVel.Mag()
-	maxvelmag := 1.5*u.domainDiameter
+	maxvelmag := 1.5 * u.domainDiameter
 	if velmag > 0 && velmag > maxvelmag {
 		particle.TempVel.SMulBy(maxvelmag / velmag)
 	}
 	/*
-	// TODO: decide whether to do this instead.
-	for i, v := range particle.TempVel {
-		m := math.Abs(v)
-		if m > u.domainDiameter
-			if v < 0 {
-				v = -u.domainDiameter
-			} else {
-				v = u.domainDiameter
+		// TODO: decide whether to do this instead.
+		for i, v := range particle.TempVel {
+			m := math.Abs(v)
+			if m > u.domainDiameter
+				if v < 0 {
+					v = -u.domainDiameter
+				} else {
+					v = u.domainDiameter
+				}
+				particle.TempVel[i] = v
 			}
-			particle.TempVel[i] = v
 		}
-	}
 	*/
 
 	particle.TempPos.Replace(particle.Pos).AddBy(particle.TempVel)
@@ -206,9 +206,10 @@ func (u *standardUpdater) bounceAll() {
 			// some particles can still occupy that space.
 			continue
 		}
-		for n, other := range u.Swarm[i+1:] {
+		for n := i + 1; n < len(u.Swarm); n++ {
+			other := u.Swarm[n]
 			test_dist := (factors[i] + factors[n]) * radius
-			real_dist := other.TempPos.Sub(p.TempPos).Norm(2)
+			real_dist := other.TempPos.Sub(p.TempPos).Mag()
 			if real_dist < test_dist {
 				if !p.TempBounced {
 					u.doBounce(p, 1.0/factors[i])
@@ -221,18 +222,7 @@ func (u *standardUpdater) bounceAll() {
 	}
 }
 
-func (u *standardUpdater) findBestNeighbor(pidx int) int {
-	informers := u.Topology.Informers(pidx)
-	best := informers[0]
-	for _, i := range informers[1:] {
-		if u.Fitness.LessFit(u.Swarm[best].BestVal, u.Swarm[i].BestVal) {
-			best = i
-		}
-	}
-	return best
-}
-
-func (u *standardUpdater) doBounce(particle *swarm.Particle, springiness float64) {
+func (u *standardUpdater) doBounce(particle *particle.Particle, springiness float64) {
 	particle.TempVel.Negate()
 	particle.TempPos.SMulBy(springiness).Negate().AddBy(particle.Pos.SMul(1 + springiness))
 	particle.TempBounced = true

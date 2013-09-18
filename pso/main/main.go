@@ -17,7 +17,7 @@ func main() {
 
 	dims := 100
 	iterations := 1000000
-	numParticles := 3
+	numParticles := 2
 
 	outputevery := 20000
 

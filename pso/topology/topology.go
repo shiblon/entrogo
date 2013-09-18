@@ -1,76 +1,80 @@
 package topology
 
-import "fmt"
+import (
+	"monson/pso/particle"
+)
 
 type Topology interface {
-	// Get the size of the (sub)swarm that this applies to.
+	// Size returns the number of particles in this topology.
 	Size() int
-	// Get a list of informers for this particle index.
-	Informers(i int) []int
+	// BestNeighbor returns the index of the best neighbor for this particle.
+	BestNeighbor(i int, particles []*particle.Particle, lessFit func(a, b float64) bool) int
 }
 
 type StarTopology struct {
-	num         int
-	best        int
-	second_best int
+	num int
 
-	topoCache map[int][]int
+	lastTick int // last tick we saw for a particle
+	best     int // last best index swarm-wide
+	next     int // last second-best index swarm-wide
 }
 
-func NewStarTopology(numParticles int) StarTopology {
-	return StarTopology{num: numParticles, topoCache: make(map[int][]int)}
+func NewStarTopology(numParticles int) *StarTopology {
+	return &StarTopology{num: numParticles}
 }
 
-func (st StarTopology) Size() int {
-	return st.num
+func (t *StarTopology) Size() int {
+	return t.num
 }
 
-func (st StarTopology) Informers(pidx int) []int {
-	if pidx < 0 || pidx >= st.num {
-		panic(fmt.Sprintf("Particle index %d out of range", pidx))
-	}
-	inf, ok := st.topoCache[pidx]
-	if !ok {
-		inf = make([]int, 0, st.num)
-		for i := 0; i < st.num; i++ {
-			if i != pidx { // TODO: allow self links?
-				inf = append(inf, i)
+func (t *StarTopology) BestNeighbor(i int, particles []*particle.Particle, lessFit func(a, b float64) bool) int {
+	// If we are in a new batch, recompute first and second best values.
+	if particles[0].T != t.lastTick {
+		t.best = 0
+		t.next = 0
+		t.lastTick = particles[0].T
+		for n := 1; n < len(particles); n++ {
+			switch {
+			case lessFit(particles[t.best].BestVal, particles[n].BestVal):
+				t.next = t.best
+				t.best = n
+			case lessFit(particles[t.next].BestVal, particles[n].BestVal):
+				t.next = n
 			}
 		}
-		st.topoCache[pidx] = inf
 	}
-	return inf
+	// All computed, now we can just return them based on which particle this is.
+	if i == t.best {
+		// Just avoid returning self as the best particle.
+		return t.next
+	}
+	return t.best
 }
 
 type RingTopology struct {
-	num       int
-	topoCache map[int][]int
+	num int
 }
 
-func NewRingTopology(numParticles int) RingTopology {
-	return RingTopology{numParticles, make(map[int][]int)}
+func NewRingTopology(numParticles int) *RingTopology {
+	return &RingTopology{numParticles}
 }
 
-func (rt RingTopology) Size() int {
-	return int(rt.num)
+func (t *RingTopology) Size() int {
+	return int(t.num)
 }
 
-func (rt RingTopology) Informers(pidx int) (out []int) {
-	if pidx < 0 || pidx >= rt.num {
-		panic(fmt.Sprintf("Particle index %d out of range", pidx))
-	}
-	if out, ok := rt.topoCache[pidx]; ok {
-		return out
-	}
-	out = append(out, (pidx + 1) % rt.num)
-	if rt.num >= 3 {
-		lower := (pidx - 1) % rt.num
-		// Go has crappy and useless negative modulus semantics.
+func (t *RingTopology) BestNeighbor(i int, particles []*particle.Particle, lessFit func(a, b float64) bool) int {
+	size := len(particles)
+
+	best := (i + 1) % size
+	if size >= 3 {
+		lower := (i - 1) % size
 		if lower < 0 {
-			lower += rt.num
+			lower += size // crappy negative modulus semantics, Go!
 		}
-		out = append(out, lower)
+		if lessFit(particles[best].BestVal, particles[lower].BestVal) {
+			best = lower
+		}
 	}
-	rt.topoCache[pidx] = out
-	return
+	return best
 }

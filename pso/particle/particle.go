@@ -1,4 +1,4 @@
-package swarm
+package particle
 
 import (
 	"fmt"
@@ -11,13 +11,14 @@ type Particle struct {
 	// Current state
 	Pos, Vel vec.Vec
 	Val      float64
+	T        int // time
 
 	// Current best state
 	BestPos vec.Vec
 	BestVal float64
 
 	// Additional state
-	BestAge int32
+	BestT   int // time
 	Bounces int32
 
 	// Scratch state
@@ -40,15 +41,15 @@ func NewRandomParticle(f fitness.Function, evaluate bool) (par *Particle) {
 		val = f.Query(pos)
 	}
 	return &Particle{
-		Pos: pos,
-		Vel: vel,
-		Val: val,
+		Pos:     pos,
+		Vel:     vel,
+		Val:     val,
 		BestPos: pos.Copy(),
 		BestVal: val,
 		TempPos: pos.Copy(),
 		TempVel: vel.Copy(),
 		TempVal: val,
-		Rand: r,
+		Rand:    r,
 	}
 }
 
@@ -59,9 +60,10 @@ func (p *Particle) Init(pos, vel vec.Vec, val float64) {
 	p.Pos = pos.Copy()
 	p.Vel = vel.Copy()
 	p.Val = val
+	p.T = 0
 	p.BestPos = pos.Copy()
 	p.BestVal = val
-	p.BestAge = 0
+	p.BestT = 0
 	p.Bounces = 0
 	p.TempPos = pos.Copy()
 	p.TempVel = vel.Copy()
@@ -78,20 +80,20 @@ func (par *Particle) UpdateCur() {
 	if par.TempBounced {
 		par.Bounces++
 	}
-	par.BestAge++
+	par.T++
 }
 
 // We have determined that the current position is better than the current
 // best. Overwrite the best and reset the best age.
 func (par *Particle) UpdateBest() {
-	par.BestAge = 0
 	par.BestPos.Replace(par.Pos)
 	par.BestVal = par.Val
+	par.BestT = par.T
 }
 
 // Stringer
 func (par *Particle) String() string {
 	return fmt.Sprintf(
-		"  x=%.3f  x'=%.3f\n  f=%.4f\n  bx=%.3f\n  bf=%.4f  ba=%v\n  bounces=%v",
-		par.Pos, par.Vel, par.Val, par.BestPos, par.BestVal, par.BestAge, par.Bounces)
+		"  %d (%d): x=%.3f  x'=%.3f\n  f=%.4f\n  bx=%.3f\n  bf=%.4f\n  bounces=%d",
+		par.T, par.BestT, par.Pos, par.Vel, par.Val, par.BestPos, par.BestVal, par.Bounces)
 }
