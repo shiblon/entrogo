@@ -20,14 +20,27 @@ func New(size int) Vec {
 }
 
 // NewFilled creates and initializes the vector so all elements are the specified value.
-func NewFilled(val float64, size int) Vec {
+func NewFilled(size int, val float64) Vec {
 	return New(size).Fill(val)
+}
+
+// NewFFilled creates and initializes the vector so all elements come from f().
+func NewFFilled(size int, f func() float64) Vec {
+	return New(size).FFill(f)
 }
 
 // Fill changes all vector values to the given value.
 func (v Vec) Fill(val float64) Vec {
 	for i := range v {
 		v[i] = val
+	}
+	return v
+}
+
+// FFill changes all values to contain f().
+func (v Vec) FFill(f func() float64) Vec {
+	for i := range v {
+		v[i] = f()
 	}
 	return v
 }

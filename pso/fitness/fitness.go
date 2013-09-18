@@ -3,7 +3,7 @@ package fitness
 import (
 	"math"
 	"math/rand"
-	"monson/pso/vec"
+	"monson/vec"
 )
 
 type Function interface {
@@ -21,6 +21,9 @@ type Function interface {
 
 	// A suitable size to use as a starting point for a radius calculation.
 	RoughDomainDiameter() float64
+
+	// DomainDims returns the number of inputs.
+	DomainDims() int
 }
 
 // Sample uniformly from a cube with corners at (min, min, min, ...), (max, max, max, ...)
@@ -38,6 +41,10 @@ func UniformCubeSample(dims int, min, max float64, rgen *rand.Rand) (v vec.Vec) 
 type Parabola struct {
 	Dims   int
 	Center vec.Vec
+}
+
+func (f Parabola) DomainDims() int {
+	return f.Dims
 }
 
 func (f Parabola) Query(pos vec.Vec) float64 {
@@ -73,6 +80,10 @@ type Sphere Parabola
 type Rastrigin struct {
 	Dims   int
 	Center vec.Vec
+}
+
+func (f Rastrigin) DomainDims() int {
+	return f.Dims
 }
 
 func (f Rastrigin) Query(pos vec.Vec) float64 {

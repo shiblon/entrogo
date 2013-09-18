@@ -1,4 +1,4 @@
-package pso
+package topology
 
 import "fmt"
 
@@ -59,17 +59,18 @@ func (rt RingTopology) Informers(pidx int) (out []int) {
 	if pidx < 0 || pidx >= rt.num {
 		panic(fmt.Sprintf("Particle index %d out of range", pidx))
 	}
-	inf, ok := rt.topoCache[pidx]
-	if !ok {
-		inf = make([]int, 2)
+	if out, ok := rt.topoCache[pidx]; ok {
+		return out
+	}
+	out = append(out, (pidx + 1) % rt.num)
+	if rt.num >= 3 {
 		lower := (pidx - 1) % rt.num
 		// Go has crappy and useless negative modulus semantics.
 		if lower < 0 {
 			lower += rt.num
 		}
-		inf[0] = lower
-		inf[1] = (pidx + 1) % rt.num
-		rt.topoCache[pidx] = inf
+		out = append(out, lower)
 	}
-	return inf
+	rt.topoCache[pidx] = out
+	return
 }
