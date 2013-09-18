@@ -94,6 +94,6 @@ func (par *Particle) UpdateBest() {
 // Stringer
 func (par *Particle) String() string {
 	return fmt.Sprintf(
-		"  %d (%d): x=%.3f  x'=%.3f\n  f=%.4f\n  bx=%.3f\n  bf=%.4f\n  bounces=%d",
-		par.T, par.BestT, par.Pos, par.Vel, par.Val, par.BestPos, par.BestVal, par.Bounces)
+		"%d (%d):\n  f=%.4f x=%.3f\n  x'=%.3f\n  bf=%.4f bx=%.3f\n  bounces=%d",
+		par.T, par.BestT, par.Val, par.Pos, par.Vel, par.BestVal, par.BestPos, par.Bounces)
 }

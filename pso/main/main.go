@@ -26,8 +26,8 @@ func main() {
 	// fitness := fitness.Parabola{Dims: dims, Center: center}
 	fitness := fitness.Rastrigin{Dims: dims, Center: center}
 
-	// topology := topology.NewRingTopology(numParticles)
-	topology := topology.NewStarTopology(numParticles)
+	// topology := topology.NewRing(numParticles)
+	topology := topology.NewStar(numParticles)
 	updater := pso.NewStandardPSO(topology, fitness)
 
 	// Increment by numParticles because that's how many evaluations we have done.

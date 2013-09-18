@@ -92,6 +92,7 @@ func (u *standardUpdater) Update() int {
 	}
 
 	// Otherwise, tick the clock again by moving all of the particles and evaluating.
+	u.Topology.Tick()
 
 	// First let all particles move based on their favorite neighbor.
 	done := make(chan bool)
@@ -134,6 +135,10 @@ func (u *standardUpdater) Update() int {
 	return num_evaluations
 }
 
+func (u *standardUpdater) topoLessFit(a, b int) bool {
+	return u.Fitness.LessFit(u.Swarm[a].BestVal, u.Swarm[b].BestVal)
+}
+
 func (u *standardUpdater) moveOneParticle(pidx int) {
 	adapt := 0.999
 	momentum := 0.8
@@ -141,7 +146,7 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 	cog := 2.05
 
 	particle := u.Swarm[pidx]
-	informer := u.Swarm[u.Topology.BestNeighbor(pidx, u.Swarm, u.Fitness.LessFit)]
+	informer := u.Swarm[u.Topology.BestNeighbor(pidx, u.topoLessFit)]
 	dims := len(particle.Pos)
 
 	if adapt != 1.0 {
