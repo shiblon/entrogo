@@ -1,88 +1,105 @@
 package fitness
 
 import (
+	"fmt"
+	"image"
 	"math"
 	"math/rand"
 	"monson/vec"
 )
 
+// TODO: Remove when done debugging
+var _p_ = fmt.Println
+
 type HoughPointFeature struct {
 	X, Y float64
+	Mag float64
 }
 
 type HoughCircle struct {
 	features []HoughPointFeature
 
-	minx, miny, maxx, maxy float64
+	numCircles int
+
+	width, height float64
+	max_radius float64
+
+	minCorner vec.Vec
+	maxCorner vec.Vec
 
 	domainDiameter float64
+	bounds image.Rectangle
+
+	stddevFraction float64
 }
 
-func NewHoughCircle(features []HoughPointFeature) *HoughCircle {
-	c := &HoughCircle{features: features}
-	c.minx = features[0].X
-	c.miny = features[0].Y
-	c.maxx = c.minx
-	c.maxy = c.miny
-	for _, feature := range features[1:] {
-		switch {
-		case c.minx > feature.X:
-			c.minx = feature.X
-		case c.maxx < feature.X:
-			c.maxx = feature.X
-		}
-		switch {
-		case c.minx > feature.Y:
-			c.miny = feature.Y
-		case c.maxy < feature.Y:
-			c.maxy = feature.Y
-		}
+func NewHoughCircle(bounds image.Rectangle, features []HoughPointFeature, stddevFraction float64) *HoughCircle {
+	f := &HoughCircle{
+		features: features,
+		bounds: bounds,
+		numCircles: 1,
 	}
-	xd := c.maxx - c.minx
-	yd := c.maxy - c.miny
-	c.domainDiameter = math.Sqrt(float64(xd*xd + yd*yd))
-	return c
+	oneMinCorner := []float64{float64(f.bounds.Min.X), float64(f.bounds.Min.Y), 2}
+	oneMaxCorner := []float64{float64(f.bounds.Max.X), float64(f.bounds.Max.Y), f.max_radius}
+	minCorner := make([]float64, 0, f.numCircles * 3)
+	maxCorner := make([]float64, 0, f.numCircles * 3)
+	for i := 0; i < f.numCircles; i++ {
+		minCorner = append(minCorner, oneMinCorner...)
+		maxCorner = append(maxCorner, oneMaxCorner...)
+	}
+	f.minCorner = vec.Vec(minCorner)
+	f.maxCorner = vec.Vec(maxCorner)
+	f.width = float64(bounds.Max.X - bounds.Min.X)
+	f.height = float64(bounds.Max.Y - bounds.Min.Y)
+	f.max_radius = math.Max(f.width, f.height)
+	f.domainDiameter = math.Sqrt(f.width*f.width + f.height*f.height + f.max_radius*f.max_radius)
+	f.stddevFraction = stddevFraction
+	return f
 }
 
 func (f *HoughCircle) Query(pos vec.Vec) float64 {
-	s := 0.0
+	sums := make([]float64, f.numCircles)
 	for _, feature := range f.features {
-		s += f.voteForFeature(feature, pos)
+		for i := 0; i < f.numCircles; i++ {
+			cx := pos[i*3]
+			cy := pos[i*3+1]
+			r := pos[i*3+2]
+			sums[i] += f.oneCircleVoteForFeature(feature, cx, cy, r)
+		}
+	}
+	s := 0.0
+	for _, v := range sums {
+		s += v
 	}
 	return s
 }
-
-func (f *HoughCircle) voteForFeature(feature HoughPointFeature, pos vec.Vec) float64 {
-	sx := pos[0]
-	sy := pos[1]
-	ax := pos[2]
-	ay := pos[3]
-	dx := pos[4]
-	dy := pos[5]
-
-	cx := feature.X * sx + feature.Y * ay + dx
-	cy := feature.Y * sy + feature.X * ax + dy
+func (f *HoughCircle) oneCircleVoteForFeature(feature HoughPointFeature, cx, cy, radius float64) float64 {
+	x := feature.X - cx
+	y := feature.Y - cy
 
 	// The circle in this coordinate space is always centered on 0, so we don't
 	// have to subtract to get distance from center. It also always has a radius of 1.0.
-	d := math.Sqrt(cx*cx + cy*cy)
-	mu := 1.0
-	stdev := 0.05
-	norm := 1.0 / (2 * math.Pi)
+	d := math.Sqrt(x*x + y*y)
+	mu := radius
+	stddev := f.stddevFraction * radius
+	norm := 1.0 / (2 * radius * math.Pi)
 
-	return norm * math.Exp(-(d-mu)*(d-mu) / (2 * stdev*stdev))
+	// TODO: do we want to do something with intensity of edge magnitude?
+	val := norm * math.Exp(-(d-mu)*(d-mu) / (2 * stddev*stddev))
+
+	return val
 }
 
 func (f *HoughCircle) DomainDims() int {
-	return 6 // TODO: is this right?
+	return 3 * f.numCircles
 }
 
 func (f *HoughCircle) RandomPos(rgen *rand.Rand) vec.Vec {
-	return UniformCubeSample(f.DomainDims(), 0, f.RoughDomainDiameter(), rgen)
+	return UniformHyperrectSample(f.minCorner, f.maxCorner, rgen)
 }
 
 func (f *HoughCircle) RandomVel(rgen *rand.Rand) vec.Vec {
-	return UniformCubeSample(f.DomainDims(), -f.RoughDomainDiameter(), f.RoughDomainDiameter(), rgen)
+	return UniformHyperrectSample(f.maxCorner.SDiv(2).Negate(), f.maxCorner.SDiv(2), rgen)
 }
 
 func (f *HoughCircle) LessFit(a, b float64) bool {

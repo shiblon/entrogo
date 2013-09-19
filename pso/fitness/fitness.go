@@ -26,11 +26,21 @@ type Function interface {
 	DomainDims() int
 }
 
-// Sample uniformly from a cube with corners at (min, min, min, ...), (max, max, max, ...)
+// UniformCubeSample samples uniformly from a cube with corners at (min, min,
+// min, ...), (max, max, max, ...).
 func UniformCubeSample(dims int, min, max float64, rgen *rand.Rand) (v vec.Vec) {
 	v = vec.Vec(make([]float64, dims))
 	for i := range v {
 		v[i] = min + rgen.Float64()*(max-min)
+	}
+	return v
+}
+
+// UnformHyperrectSample samples uniformly from a hyper rectangle with the given corners.
+func UniformHyperrectSample(min, max vec.Vec, rgen *rand.Rand) (v vec.Vec) {
+	v = vec.New(len(min))
+	for i := range v {
+		v[i] = min[i] + rgen.Float64()*(max[i]-min[i])
 	}
 	return v
 }

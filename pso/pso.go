@@ -9,6 +9,26 @@ import (
 )
 
 type Config struct {
+	DecayAdapt       float64
+	DecayRadius      float64
+	Momentum         float64
+	SocConst         float64
+	CogConst         float64
+	VelCapMultiplier float64
+	RadiusMultiplier float64
+
+}
+
+func NewBasicConfig() *Config {
+	return &Config{
+		DecayAdapt:       0.999,
+		DecayRadius:      0.99,
+		Momentum:         0.7,
+		SocConst:         2.05,
+		CogConst:         2.05,
+		VelCapMultiplier: 1.0,
+		RadiusMultiplier: 0.1,
+	}
 }
 
 type Updater interface {
@@ -26,6 +46,7 @@ type standardUpdater struct {
 	Swarm    []*particle.Particle
 	Topology topology.Topology
 	Fitness  fitness.Function
+	Conf     *Config
 
 	initialized    bool
 	domainDiameter float64
@@ -39,10 +60,11 @@ type standardUpdater struct {
 //
 // Note that this has no swarm attached. It has what it needs to create one,
 // but the swarm itself is nil at this stage.
-func NewStandardPSO(t topology.Topology, f fitness.Function) Updater {
+func NewStandardPSO(t topology.Topology, f fitness.Function, c *Config) Updater {
 	return &standardUpdater{
 		Topology:       t,
 		Fitness:        f,
+		Conf:           c,
 		domainDiameter: f.RoughDomainDiameter(),
 	}
 }
@@ -140,10 +162,11 @@ func (u *standardUpdater) topoLessFit(a, b int) bool {
 }
 
 func (u *standardUpdater) moveOneParticle(pidx int) {
-	adapt := 0.999
-	momentum := 0.8
-	soc := 2.05
-	cog := 2.05
+	adapt := u.Conf.DecayAdapt
+	momentum := u.Conf.Momentum
+	soc := u.Conf.SocConst
+	cog := u.Conf.CogConst
+	maxvel_fraction := u.Conf.VelCapMultiplier
 
 	particle := u.Swarm[pidx]
 	informer := u.Swarm[u.Topology.BestNeighbor(pidx, u.topoLessFit)]
@@ -164,15 +187,13 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 	// TODO: use some multiple of the diameter?
 	particle.TempVel.Replace(particle.Vel).SMulBy(momentum).AddBy(acc)
 	velmag := particle.TempVel.Mag()
-	maxvelmag := 1.5 * u.domainDiameter
+	maxvelmag := maxvel_fraction * u.domainDiameter
 	if velmag > 0 && velmag > maxvelmag {
-		particle.TempVel.SMulBy(maxvelmag / velmag)
-	}
-	/*
 		// TODO: decide whether to do this instead.
+	    // particle.TempVel.SMulBy(maxvelmag / velmag)
 		for i, v := range particle.TempVel {
 			m := math.Abs(v)
-			if m > u.domainDiameter
+			if m > u.domainDiameter {
 				if v < 0 {
 					v = -u.domainDiameter
 				} else {
@@ -181,15 +202,15 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 				particle.TempVel[i] = v
 			}
 		}
-	*/
+	}
 
 	particle.TempPos.Replace(particle.Pos).AddBy(particle.TempVel)
 	particle.TempBounced = false
 }
 
 func (u *standardUpdater) bounceAll() {
-	radius := 0.05 * u.domainDiameter
-	bounce_factor := 0.99
+	radius := u.Conf.RadiusMultiplier * u.domainDiameter
+	bounce_factor := u.Conf.DecayRadius
 
 	if radius <= 0.0 {
 		return
