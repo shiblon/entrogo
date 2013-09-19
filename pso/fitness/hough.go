@@ -58,7 +58,7 @@ func NewHoughCircle(bounds image.Rectangle, features []HoughPointFeature, stddev
 }
 
 func (f *HoughCircle) Query(pos vec.Vec) float64 {
-	sums := make([]float64, f.numCircles)
+	sums := vec.New(f.numCircles)
 	for _, feature := range f.features {
 		for i := 0; i < f.numCircles; i++ {
 			cx := pos[i*3]
@@ -67,11 +67,7 @@ func (f *HoughCircle) Query(pos vec.Vec) float64 {
 			sums[i] += f.oneCircleVoteForFeature(feature, cx, cy, r)
 		}
 	}
-	s := 0.0
-	for _, v := range sums {
-		s += v
-	}
-	return s
+	return sums.Sum()
 }
 func (f *HoughCircle) oneCircleVoteForFeature(feature HoughPointFeature, cx, cy, radius float64) float64 {
 	x := feature.X - cx

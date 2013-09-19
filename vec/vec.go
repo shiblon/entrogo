@@ -223,3 +223,17 @@ func (v Vec) Dot(other Vec) float64 {
 func (v Vec) Mag() float64 {
 	return math.Sqrt(v.Dot(v))
 }
+
+// Reduce applies the given function to every item to reduce the vector to a single value.
+func (v Vec) Reduce(f func(accum, elem float64) float64, startVal float64) float64 {
+	accum := startVal
+	for _, val := range v {
+		accum = f(accum, val)
+	}
+	return accum
+}
+
+// Sum adds all of the elements together.
+func (v Vec) Sum() float64 {
+	return v.Reduce(func(a, e float64) float64 {return a+e}, 0.0)
+}

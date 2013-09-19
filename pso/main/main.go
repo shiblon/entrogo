@@ -19,14 +19,14 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	rand.Seed(time.Now().UTC().UnixNano())
 
-	numParticles := 2
+	numParticles := 3
 
-	iterations := 1000000
+	iterations := 100000
 	outputevery := 5000
 
 	config := pso.NewBasicConfig()
 	config.Momentum = 0.8
-	config.DecayRadius = 0.99
+	config.DecayRadius = 0.9
 	config.DecayAdapt = 0.999
 	config.RadiusMultiplier = 0.1
 
