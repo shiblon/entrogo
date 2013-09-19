@@ -69,19 +69,25 @@ func (f *HoughCircle) Query(pos vec.Vec) float64 {
 	}
 	return sums.Sum()
 }
-func (f *HoughCircle) oneCircleVoteForFeature(feature HoughPointFeature, cx, cy, radius float64) float64 {
-	x := feature.X - cx
-	y := feature.Y - cy
 
-	// The circle in this coordinate space is always centered on 0, so we don't
-	// have to subtract to get distance from center. It also always has a radius of 1.0.
-	d := math.Sqrt(x*x + y*y)
-	mu := radius
-	stddev := f.stddevFraction * radius
-	norm := 1.0 / (2 * radius * math.Pi)
+func (f *HoughCircle) oneCircleVoteForFeature(feature HoughPointFeature, cx, cy, cr float64) float64 {
+	// Transform to 0,0,1 circle space.
+	x := (feature.X - cx) / cr
+	y := (feature.Y - cy) / cr
+	r := math.Sqrt(x*x + y*y)
+
+	mu := 1.0
+	stddev := f.stddevFraction
+	// Note that we use cr again in normalization. This is because we already
+	// moved the *domain* into normal circle space, but we haven't yet moved
+	// the *range* into a sane place. If we don't normalize here, then every
+	// point in space starts looking really good just because it has a big
+	// radius and its normal circle is otherwise on par with every other normal
+	// circle.
+	norm := 1.0 / (2 * cr * math.Pi)
 
 	// TODO: do we want to do something with intensity of edge magnitude?
-	val := norm * math.Exp(-(d-mu)*(d-mu) / (2 * stddev*stddev))
+	val := feature.Mag * norm * math.Exp(-(r-mu)*(r-mu) / (2 * stddev*stddev))
 
 	return val
 }

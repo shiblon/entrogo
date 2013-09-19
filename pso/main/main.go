@@ -19,7 +19,7 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	rand.Seed(time.Now().UTC().UnixNano())
 
-	numParticles := 3
+	numParticles := 2
 
 	iterations := 100000
 	outputevery := 5000
@@ -78,6 +78,10 @@ func main() {
 			fmt.Println(best)
 			dist_to_center := best.BestPos.Sub(center).Mag()
 			fmt.Println(evals, best.BestVal, dist_to_center)
+		}
+		// TODO: Remove after debugging, or incorporate into Hough.
+		if updater.BestParticle().Bounces > 100 {
+			break
 		}
 	}
 	best := updater.BestParticle()
