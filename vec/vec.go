@@ -209,6 +209,12 @@ func (v Vec) Norm(degree float64) float64 {
 	return math.Pow(s, 1.0/degree)
 }
 
+// Normalize changes this to a unit-length vector.
+func (v Vec) Normalize() Vec {
+	mag := v.Mag()
+	return v.MapBy(func(i int, val float64) float64 {return val / mag})
+}
+
 // Dot returns the dot product of v and other.
 func (v Vec) Dot(other Vec) float64 {
 	assertSameLen(v, other)
@@ -236,4 +242,14 @@ func (v Vec) Reduce(f func(accum, elem float64) float64, startVal float64) float
 // Sum adds all of the elements together.
 func (v Vec) Sum() float64 {
 	return v.Reduce(func(a, e float64) float64 {return a+e}, 0.0)
+}
+
+// Max returns the largest of all elements.
+func (v Vec) Max() float64 {
+	return v[1:].Reduce(func(a, e float64) float64 {return math.Max(a, e)}, v[0])
+}
+
+// Min returns the smallest of all elements.
+func (v Vec) Min() float64 {
+	return v[1:].Reduce(func(a, e float64) float64 {return math.Min(a, e)}, v[0])
 }
