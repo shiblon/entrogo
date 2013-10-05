@@ -2,12 +2,12 @@ package main
 
 import (
 	"bufio"
+	"code.google.com/p/entrogo/mealy"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
-	"code.google.com/p/entrogo/mealy"
 	"os"
 	"strings"
 )
@@ -43,7 +43,7 @@ func TextFileToChannel(inName string) <-chan string {
 	return words
 }
 
-func WriteMealy(outName string, m mealy.MealyMachine) {
+func WriteMealy(outName string, m mealy.Recognizer) {
 	file, err := os.Create(outName)
 	if err != nil {
 		log.Fatal(err)
@@ -55,7 +55,7 @@ func WriteMealy(outName string, m mealy.MealyMachine) {
 	}
 }
 
-func ReadMealy(inName string) mealy.MealyMachine {
+func ReadMealy(inName string) mealy.Recognizer {
 	file, err := os.Open(inName)
 	if err != nil {
 		log.Fatal(err)

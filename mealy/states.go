@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 )
+
 // Transitions are 32-bit integers split up thus:
 //
 // - 8 bits: trigger value (a byte) - first to make sorting work as expected.
@@ -57,7 +58,7 @@ func (s state) String() string {
 	for i, t := range s {
 		transitions[i] = t.String()
 	}
-	return "\t" + strings.Join(transitions, "\n\t");
+	return "\t" + strings.Join(transitions, "\n\t")
 }
 func (s state) Len() int {
 	return len(s)

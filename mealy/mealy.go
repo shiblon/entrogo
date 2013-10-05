@@ -78,10 +78,10 @@ func FromChannel(values <-chan []byte) Recognizer {
 
 	// Finish up by making all remaining states, then create a start state.
 	makeSuffixStates(0)
-	if startId := makeState(larvae[0]); startId != len(self) - 1 {
+	if startId := makeState(larvae[0]); startId != len(self)-1 {
 		panic(fmt.Sprintf(
 			"Unexpected start ID, not at the end: %v < %v",
-			startId, len(self) - 1))
+			startId, len(self)-1))
 	}
 
 	// Start state is at len - 1; final state is at 0.
@@ -264,7 +264,7 @@ func (self *Recognizer) ConstrainedSequences(con Constraints) <-chan []byte {
 				}
 			}
 			nextState := (*self)[curTransition.ToState()]
-			if !nextState.IsEmpty() && con.IsSmallEnough(len(path) + 1) {
+			if !nextState.IsEmpty() && con.IsSmallEnough(len(path)+1) {
 				node := pathNode{nextState, 0}
 				path = append(path, node)
 			} else {

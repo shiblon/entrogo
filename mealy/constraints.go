@@ -53,4 +53,3 @@ func (c BaseConstraints) IsValueAllowed(int, byte) bool {
 func (c BaseConstraints) IsSequenceAllowed([]byte) bool {
 	return true
 }
-
