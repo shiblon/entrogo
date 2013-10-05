@@ -1,10 +1,10 @@
 package index
 
 import (
+	"code.google.com/p/entrogo/mealy"
 	"fmt"
 	"io"
 	"log"
-	"monson/mealy"
 	"sort"
 	"strings"
 )

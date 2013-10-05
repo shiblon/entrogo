@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"monson/mealy"
+	"code.google.com/p/entrogo/mealy"
 	"os"
 	"strings"
 )
