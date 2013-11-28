@@ -119,7 +119,7 @@ func ExampleMap() {
 	v := Vec{1, 2, 3, 4}
 	fmt.Println(v)
 	v.MapBy(func(_ int, a float64) float64 { return math.Sqrt(a) })
-	x := v.Map(func(i int, a float64) float64 { return float64(i)*a })
+	x := v.Map(func(i int, a float64) float64 { return float64(i) * a })
 	fmt.Println(v)
 	fmt.Println(x)
 
