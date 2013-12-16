@@ -202,6 +202,11 @@ func (v Vec) Map(f func(int, float64) float64) Vec {
 	return v.Copy().MapBy(f)
 }
 
+// Normalized returns a new vector with magnitude 1.0.
+func (v Vec) Normalized() Vec {
+	return v.Copy().Normalize()
+}
+
 // Norm returns the degree-norm of the vector. The 2-norm is the euclidean distance from the origin.
 // The degree must be positive.
 func (v Vec) Norm(degree float64) float64 {
