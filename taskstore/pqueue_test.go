@@ -207,3 +207,11 @@ func Example_peekAt() {
 	// Output:
 	// Task 4: group=group1 owner=1 at=1005 data="data4"
 }
+
+func Example_PeekById() {
+	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+
+	fmt.Println(tq.PeekById(3))
+
+	// Output:
+	// Task 3: group=group1 owner=1 at=999 data="data3"
