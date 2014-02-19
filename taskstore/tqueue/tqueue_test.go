@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package taskstore
+package tqueue
 
 import (
 	"fmt"
@@ -74,7 +74,7 @@ var (
 
 func Example_newTaskQueue() {
 	tq := NewTaskQueue("group1")
-	fmt.Println(tq.Name, tq.taskHeap, tq.taskMap, cap(tq.randChan))
+	fmt.Println(tq.name, tq.taskHeap, tq.taskMap, cap(tq.randChan))
 
 	// Output:
 	// group1 [] map[] 1

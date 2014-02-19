@@ -27,30 +27,13 @@ package taskstore
 import (
 	"fmt"
 	"time"
+
+	"code.google.com/p/entrogo/taskstore/tqueue"
 )
-
-// Task is the atomic task unit. It contains a unique task, an owner ID, and an
-// Available Time (AT). The data is user-defined and can be basically anything.
-//
-// 0 is an invalid ID, and is used to indicate "please assign".
-// A negative AT means "delete this task".
-type Task struct {
-	ID    int64
-	Owner int64
-	Group string
-
-	AT int64
-
-	Data interface{}
-}
-
-func (t *Task) String() string {
-	return fmt.Sprintf("Task %d: group=%s owner=%d at=%d data=%#v", t.ID, t.Group, t.Owner, t.AT, t.Data)
-}
 
 type taskStore struct {
 	journalDir string
-	groups     map[string]TaskQueue
+	groups     map[string]tqueue.TaskQueue
 }
 
 func New(journalDir string) *taskStore {
@@ -74,7 +57,7 @@ func (t *taskStore) Start() {
 }
 
 // getTask returns the task in the given group with the given ID.
-func (t *taskStore) getTask(group string, id int64) (task *Task, err error) {
+func (t *taskStore) getTask(group string, id int64) (task *tqueue.Task, err error) {
 	g, ok := t.groups[group]
 	if !ok {
 		return nil, fmt.Errorf("No such group %q in taskstore", group)
@@ -94,10 +77,10 @@ func (t *taskStore) nowMicroseconds() int64 {
 // is negative, it indicates that the task should be deleted.
 // In the event of success, the new IDs are returned. If the operation was not
 // successful, the list of errors will contain at least one non-nil entry.
-func (t *taskStore) Update(tasks []Task) (newIds []int64, errors []error) {
+func (t *taskStore) Update(tasks []tqueue.Task) (newIds []int64, errors []error) {
 	newIds = make([]int64, len(tasks))
 	errors = make([]error, len(tasks))
-	oldTasks := make([]*Task, len(tasks))
+	oldTasks := make([]*tqueue.Task, len(tasks))
 
 	hasErrors := false
 

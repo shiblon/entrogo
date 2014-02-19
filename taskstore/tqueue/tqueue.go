@@ -13,15 +13,10 @@
 // limitations under the License.
 
 /*
-Package taskstore implements a library for a simple task store.
-
-This provides abstractions for creating a simple task store process that
-manages data in memory and on disk. It can be used to implement a full-fledged
-task queue, but it is only the core storage piece. In particular, it does not
-implement any networking protocols.
+Package tqueue implements a library for a simple task queue.
 */
 
-package taskstore
+package tqueue
 
 import (
 	"container/heap"
@@ -31,20 +26,41 @@ import (
 	"strings"
 )
 
+// Task is the atomic task unit. It contains a unique task, an owner ID, and an
+// Available Time (AT). The data is user-defined and can be basically anything.
+//
+// 0 is an invalid ID, and is used to indicate "please assign".
+// A negative AT means "delete this task".
+type Task struct {
+	ID    int64
+	Owner int64
+	Group string
+
+	AT int64
+
+	Data interface{}
+}
+
+func (t *Task) String() string {
+	return fmt.Sprintf("Task %d: group=%s owner=%d at=%d data=%#v", t.ID, t.Group, t.Owner, t.AT, t.Data)
+}
+
 type TaskQueue struct {
-	Name     string
+	name     string
 	taskHeap taskQueueImpl
 	taskMap  map[int64]*taskItem
 	randChan chan float64
 }
 
+// NewTaskQueue creates a new empty task queue.
 func NewTaskQueue(name string) *TaskQueue {
 	return NewTaskQueueFromTasks(name, []*Task{})
 }
 
+// NewTaskQueueFromTasks creates a task queue from a slice of task pointers.
 func NewTaskQueueFromTasks(name string, tasks []*Task) *TaskQueue {
 	q := &TaskQueue{
-		Name:     name,
+		name:     name,
 		taskHeap: make([]*taskItem, len(tasks)),
 		taskMap:  make(map[int64]*taskItem),
 		randChan: make(chan float64, 1),
@@ -67,6 +83,10 @@ func NewTaskQueueFromTasks(name string, tasks []*Task) *TaskQueue {
 	return q
 }
 
+func (t *TaskQueue) Name() string {
+	return t.name
+}
+
 func (t *TaskQueue) String() string {
 	hpieces := []string{"["}
 	for _, v := range t.taskHeap {
@@ -87,25 +107,27 @@ func (t *TaskQueue) String() string {
 
 	return fmt.Sprintf(
 		"TQ name=%s\n   heap=%v\n   map=%v\n   chancap=%d",
-		t.Name,
+		t.name,
 		strings.Join(hpieces, "\n   "),
 		strings.Join(mpieces, "\n   "),
 		cap(t.randChan))
 }
 
+// Push adds a task to the queue.
 func (q *TaskQueue) Push(t *Task) {
 	ti := &taskItem{task: t}
 	heap.Push(&q.taskHeap, ti)
 	q.taskMap[t.ID] = ti
 }
 
+// Pop removes the element with the lowest AT from the queue (oldest task).
 func (q *TaskQueue) Pop() *Task {
 	ti := heap.Pop(&q.taskHeap).(*taskItem)
 	delete(q.taskMap, ti.task.ID)
 	return ti.task
 }
 
-// PopAt removes an element from the specified index in O(log(n)) time.
+// PopAt removes an element from the specified index in the queue in O(log(n)) time.
 func (q *TaskQueue) PopAt(idx int) *Task {
 	task := q.PeekAt(idx)
 	if task == nil {
@@ -132,14 +154,17 @@ func (q *TaskQueue) PopAt(idx int) *Task {
 	return task
 }
 
+// Len returns the size of the task queue.
 func (q *TaskQueue) Len() int {
 	return len(q.taskHeap)
 }
 
+// Peek returns the top element in the queue (with the oldest AT), or nil if the queue is empty.
 func (q *TaskQueue) Peek() *Task {
 	return q.PeekAt(0)
 }
 
+// PeekAt finds the task at index idx in the heap and returns it. Returns nil if idx is out of bounds.
 func (q *TaskQueue) PeekAt(idx int) *Task {
 	if idx >= q.Len() {
 		return nil
@@ -147,6 +172,8 @@ func (q *TaskQueue) PeekAt(idx int) *Task {
 	return q.taskHeap[idx].task
 }
 
+// PeekById finds the task with the given ID and returns it, if it is in the queue.
+// Returns nil if the task is not found.
 func (q *TaskQueue) PeekById(id int64) *Task {
 	if ti, ok := q.taskMap[id]; ok {
 		return ti.task
@@ -154,6 +181,7 @@ func (q *TaskQueue) PeekById(id int64) *Task {
 	return nil
 }
 
+// PopByID finds the task with the given ID and pops it from (possibly the middle of) the queue.
 func (q *TaskQueue) PopById(id int64) *Task {
 	if ti, ok := q.taskMap[id]; ok {
 		return q.PopAt(ti.index)
