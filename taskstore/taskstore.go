@@ -33,7 +33,7 @@ import (
 
 type taskStore struct {
 	journalDir string
-	groups     map[string]tqueue.TaskQueue
+	queues     map[string]*tqueue.TQueue
 }
 
 func New(journalDir string) *taskStore {
@@ -58,7 +58,7 @@ func (t *taskStore) Start() {
 
 // getTask returns the task in the given group with the given ID.
 func (t *taskStore) getTask(group string, id int64) (task *tqueue.Task, err error) {
-	g, ok := t.groups[group]
+	g, ok := t.queues[group]
 	if !ok {
 		return nil, fmt.Errorf("No such group %q in taskstore", group)
 	}
@@ -110,7 +110,7 @@ func (t *taskStore) Update(tasks []tqueue.Task) (newIds []int64, errors []error)
 	// tasks with new IDs and new content. If AT is zero, we set it to now().
 	// If it is negative, we delete the task.
 	for _, task := range tasks {
-		g := t.groups[task.Group]
+		g := t.queues[task.Group]
 		if task.AT == 0 {
 			task.AT = now
 		}

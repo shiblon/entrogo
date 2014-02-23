@@ -72,15 +72,15 @@ var (
 	}
 )
 
-func Example_newTaskQueue() {
-	tq := NewTaskQueue("group1")
+func Example_new() {
+	tq := New("group1")
 	fmt.Println(tq.name, tq.taskHeap, tq.taskMap, cap(tq.randChan))
 
 	// Output:
 	// group1 [] map[] 1
 }
 
-func Example_newTaskQueueFromTasks() {
+func Example_newFromTasks() {
 	BasicTasks = []*Task{
 		{
 			ID:    1,
@@ -133,7 +133,7 @@ func Example_newTaskQueueFromTasks() {
 		},
 	}
 
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+	tq := NewFromTasks("group1", BasicTasks)
 
 	fmt.Println(tq)
 
@@ -161,8 +161,8 @@ func Example_newTaskQueueFromTasks() {
 	//    chancap=1
 }
 
-func ExampleTaskQueue_Push() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_Push() {
+	tq := NewFromTasks("group1", BasicTasks)
 	tq.Push(&Task{
 		ID:    7,
 		AT:    998,
@@ -197,8 +197,8 @@ func ExampleTaskQueue_Push() {
 	//    chancap=1
 }
 
-func ExampleTaskQueue_Pop() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_Pop() {
+	tq := NewFromTasks("group1", BasicTasks)
 
 	// Pop the oldest task (the lowest Available Time)
 	task := tq.Pop()
@@ -209,8 +209,8 @@ func ExampleTaskQueue_Pop() {
 	// Task 3: group=group1 owner=1 at=999 data="data3"
 }
 
-func ExampleTaskQueue_PopAt() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_PopAt() {
+	tq := NewFromTasks("group1", BasicTasks)
 
 	// Pop a task from the middle
 	task := tq.PopAt(4)
@@ -242,8 +242,8 @@ func ExampleTaskQueue_PopAt() {
 	//    chancap=1
 }
 
-func ExampleTaskQueue_Peek() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_Peek() {
+	tq := NewFromTasks("group1", BasicTasks)
 
 	fmt.Println(tq.Peek())
 
@@ -251,8 +251,8 @@ func ExampleTaskQueue_Peek() {
 	// Task 3: group=group1 owner=1 at=999 data="data3"
 }
 
-func ExampleTaskQueue_PeekAt() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_PeekAt() {
+	tq := NewFromTasks("group1", BasicTasks)
 
 	fmt.Println(tq.PeekAt(3))
 
@@ -260,8 +260,8 @@ func ExampleTaskQueue_PeekAt() {
 	// Task 4: group=group1 owner=1 at=1005 data="data4"
 }
 
-func ExampleTaskQueue_PeekById() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_PeekById() {
+	tq := NewFromTasks("group1", BasicTasks)
 
 	fmt.Println(tq.PeekById(3))
 
@@ -269,8 +269,8 @@ func ExampleTaskQueue_PeekById() {
 	// Task 3: group=group1 owner=1 at=999 data="data3"
 }
 
-func ExampleTaskQueue_PopById() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_PopById() {
+	tq := NewFromTasks("group1", BasicTasks)
 
 	task := tq.PopById(3)
 	fmt.Println(task)
@@ -299,8 +299,8 @@ func ExampleTaskQueue_PopById() {
 	//    chancap=1
 }
 
-func ExampleTaskQueue_PopRandomAvailable_onlyOne() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_PopRandomAvailable_onlyOne() {
+	tq := NewFromTasks("group1", BasicTasks)
 	task := tq.PopRandomAvailable(999) // Only one matches.
 	fmt.Println(task)
 
@@ -309,8 +309,8 @@ func ExampleTaskQueue_PopRandomAvailable_onlyOne() {
 	// Task 3: group=group1 owner=1 at=999 data="data3"
 }
 
-func ExampleTaskQueue_PopRandomAvailable_none() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_PopRandomAvailable_none() {
+	tq := NewFromTasks("group1", BasicTasks)
 	task := tq.PopRandomAvailable(998)
 	fmt.Println(task == nil)
 
@@ -319,8 +319,8 @@ func ExampleTaskQueue_PopRandomAvailable_none() {
 	// true
 }
 
-func ExampleTaskQueue_PopRandomAvailable_random() {
-	tq := NewTaskQueueFromTasks("group1", BasicTasks)
+func ExampleTQueue_PopRandomAvailable_random() {
+	tq := NewFromTasks("group1", BasicTasks)
 	task := tq.PopRandomAvailable(1001)
 
 	switch task.ID {

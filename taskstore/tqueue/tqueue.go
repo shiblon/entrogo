@@ -45,21 +45,21 @@ func (t *Task) String() string {
 	return fmt.Sprintf("Task %d: group=%s owner=%d at=%d data=%#v", t.ID, t.Group, t.Owner, t.AT, t.Data)
 }
 
-type TaskQueue struct {
+type TQueue struct {
 	name     string
 	taskHeap taskQueueImpl
 	taskMap  map[int64]*taskItem
 	randChan chan float64
 }
 
-// NewTaskQueue creates a new empty task queue.
-func NewTaskQueue(name string) *TaskQueue {
-	return NewTaskQueueFromTasks(name, []*Task{})
+// New creates a new empty task queue.
+func New(name string) *TQueue {
+	return NewFromTasks(name, []*Task{})
 }
 
-// NewTaskQueueFromTasks creates a task queue from a slice of task pointers.
-func NewTaskQueueFromTasks(name string, tasks []*Task) *TaskQueue {
-	q := &TaskQueue{
+// NewFromTasks creates a task queue from a slice of task pointers.
+func NewFromTasks(name string, tasks []*Task) *TQueue {
+	q := &TQueue{
 		name:     name,
 		taskHeap: make([]*taskItem, len(tasks)),
 		taskMap:  make(map[int64]*taskItem),
@@ -83,52 +83,52 @@ func NewTaskQueueFromTasks(name string, tasks []*Task) *TaskQueue {
 	return q
 }
 
-func (t *TaskQueue) Name() string {
-	return t.name
+func (q *TQueue) Name() string {
+	return q.name
 }
 
-func (t *TaskQueue) String() string {
+func (q *TQueue) String() string {
 	hpieces := []string{"["}
-	for _, v := range t.taskHeap {
+	for _, v := range q.taskHeap {
 		hpieces = append(hpieces, fmt.Sprintf("   %s", v))
 	}
 	hpieces = append(hpieces, "]")
 
 	keys := []int64{}
-	for k := range t.taskMap {
+	for k := range q.taskMap {
 		keys = append(keys, k)
 	}
 	mpieces := []string{"["}
 	for _, k := range keys {
-		ti := t.taskMap[k]
+		ti := q.taskMap[k]
 		mpieces = append(mpieces, fmt.Sprintf("   ID %d = index %d", ti.task.ID, ti.index))
 	}
 	mpieces = append(mpieces, "]")
 
 	return fmt.Sprintf(
 		"TQ name=%s\n   heap=%v\n   map=%v\n   chancap=%d",
-		t.name,
+		q.name,
 		strings.Join(hpieces, "\n   "),
 		strings.Join(mpieces, "\n   "),
-		cap(t.randChan))
+		cap(q.randChan))
 }
 
 // Push adds a task to the queue.
-func (q *TaskQueue) Push(t *Task) {
+func (q *TQueue) Push(t *Task) {
 	ti := &taskItem{task: t}
 	heap.Push(&q.taskHeap, ti)
 	q.taskMap[t.ID] = ti
 }
 
 // Pop removes the element with the lowest AT from the queue (oldest task).
-func (q *TaskQueue) Pop() *Task {
+func (q *TQueue) Pop() *Task {
 	ti := heap.Pop(&q.taskHeap).(*taskItem)
 	delete(q.taskMap, ti.task.ID)
 	return ti.task
 }
 
 // PopAt removes an element from the specified index in the queue in O(log(n)) time.
-func (q *TaskQueue) PopAt(idx int) *Task {
+func (q *TQueue) PopAt(idx int) *Task {
 	task := q.PeekAt(idx)
 	if task == nil {
 		return nil
@@ -155,17 +155,17 @@ func (q *TaskQueue) PopAt(idx int) *Task {
 }
 
 // Len returns the size of the task queue.
-func (q *TaskQueue) Len() int {
+func (q *TQueue) Len() int {
 	return len(q.taskHeap)
 }
 
 // Peek returns the top element in the queue (with the oldest AT), or nil if the queue is empty.
-func (q *TaskQueue) Peek() *Task {
+func (q *TQueue) Peek() *Task {
 	return q.PeekAt(0)
 }
 
 // PeekAt finds the task at index idx in the heap and returns it. Returns nil if idx is out of bounds.
-func (q *TaskQueue) PeekAt(idx int) *Task {
+func (q *TQueue) PeekAt(idx int) *Task {
 	if idx >= q.Len() {
 		return nil
 	}
@@ -174,7 +174,7 @@ func (q *TaskQueue) PeekAt(idx int) *Task {
 
 // PeekById finds the task with the given ID and returns it, if it is in the queue.
 // Returns nil if the task is not found.
-func (q *TaskQueue) PeekById(id int64) *Task {
+func (q *TQueue) PeekById(id int64) *Task {
 	if ti, ok := q.taskMap[id]; ok {
 		return ti.task
 	}
@@ -182,7 +182,7 @@ func (q *TaskQueue) PeekById(id int64) *Task {
 }
 
 // PopByID finds the task with the given ID and pops it from (possibly the middle of) the queue.
-func (q *TaskQueue) PopById(id int64) *Task {
+func (q *TQueue) PopById(id int64) *Task {
 	if ti, ok := q.taskMap[id]; ok {
 		return q.PopAt(ti.index)
 	}
@@ -196,7 +196,7 @@ func (q *TaskQueue) PopById(id int64) *Task {
 // traversing the tree very far quickly gets vanishingly small.
 // There are undoubtedly other interesting approaches to doing this, but it
 // seems reasonable for a task store.
-func (q *TaskQueue) PopRandomAvailable(deadline int64) *Task {
+func (q *TQueue) PopRandomAvailable(deadline int64) *Task {
 	// Start at the leftmost location (the lowest value), and randomly jump to
 	// children so long as they are earlier than the deadline.
 	idx := 0
