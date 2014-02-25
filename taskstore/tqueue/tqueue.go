@@ -48,7 +48,6 @@ func (t *Task) String() string {
 type TQueue struct {
 	name     string
 	taskHeap taskQueueImpl
-	taskMap  map[int64]*taskItem
 	randChan chan float64
 }
 
@@ -62,13 +61,11 @@ func NewFromTasks(name string, tasks []*Task) *TQueue {
 	q := &TQueue{
 		name:     name,
 		taskHeap: make([]*taskItem, len(tasks)),
-		taskMap:  make(map[int64]*taskItem),
 		randChan: make(chan float64, 1),
 	}
 	for i, t := range tasks {
 		ti := &taskItem{index: i, task: t}
 		q.taskHeap[i] = ti
-		q.taskMap[t.ID] = ti
 	}
 	// Provide thread-safe random values.
 	go func() {
@@ -94,22 +91,10 @@ func (q *TQueue) String() string {
 	}
 	hpieces = append(hpieces, "]")
 
-	keys := []int64{}
-	for k := range q.taskMap {
-		keys = append(keys, k)
-	}
-	mpieces := []string{"["}
-	for _, k := range keys {
-		ti := q.taskMap[k]
-		mpieces = append(mpieces, fmt.Sprintf("   ID %d = index %d", ti.task.ID, ti.index))
-	}
-	mpieces = append(mpieces, "]")
-
 	return fmt.Sprintf(
-		"TQ name=%s\n   heap=%v\n   map=%v\n   chancap=%d",
+		"TQ name=%s\n   heap=%v\n   chancap=%d",
 		q.name,
 		strings.Join(hpieces, "\n   "),
-		strings.Join(mpieces, "\n   "),
 		cap(q.randChan))
 }
 
@@ -117,13 +102,11 @@ func (q *TQueue) String() string {
 func (q *TQueue) Push(t *Task) {
 	ti := &taskItem{task: t}
 	heap.Push(&q.taskHeap, ti)
-	q.taskMap[t.ID] = ti
 }
 
 // Pop removes the element with the lowest AT from the queue (oldest task).
 func (q *TQueue) Pop() *Task {
 	ti := heap.Pop(&q.taskHeap).(*taskItem)
-	delete(q.taskMap, ti.task.ID)
 	return ti.task
 }
 
@@ -150,7 +133,6 @@ func (q *TQueue) PopAt(idx int) *Task {
 	// Then we remove the nil item at the top.
 	heap.Pop(&q.taskHeap)
 
-	delete(q.taskMap, task.ID)
 	return task
 }
 
@@ -170,23 +152,6 @@ func (q *TQueue) PeekAt(idx int) *Task {
 		return nil
 	}
 	return q.taskHeap[idx].task
-}
-
-// PeekById finds the task with the given ID and returns it, if it is in the queue.
-// Returns nil if the task is not found.
-func (q *TQueue) PeekById(id int64) *Task {
-	if ti, ok := q.taskMap[id]; ok {
-		return ti.task
-	}
-	return nil
-}
-
-// PopByID finds the task with the given ID and pops it from (possibly the middle of) the queue.
-func (q *TQueue) PopById(id int64) *Task {
-	if ti, ok := q.taskMap[id]; ok {
-		return q.PopAt(ti.index)
-	}
-	return nil
 }
 
 // PopRandomAvailable walks the queue randomly choosing a child until it either

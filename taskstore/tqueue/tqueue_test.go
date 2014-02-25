@@ -74,10 +74,10 @@ var (
 
 func Example_new() {
 	tq := New("group1")
-	fmt.Println(tq.name, tq.taskHeap, tq.taskMap, cap(tq.randChan))
+	fmt.Println(tq.name, tq.taskHeap, cap(tq.randChan))
 
 	// Output:
-	// group1 [] map[] 1
+	// group1 [] 1
 }
 
 func Example_newFromTasks() {
@@ -149,15 +149,6 @@ func Example_newFromTasks() {
 	//       {5:Task 6: group=group1 owner=1 at=1001 data="data6"}
 	//       {6:Task 7: group=group1 owner=1 at=1003 data="data7"}
 	//    ]
-	//    map=[
-	//       ID 1 = index 2
-	//       ID 2 = index 4
-	//       ID 3 = index 0
-	//       ID 4 = index 3
-	//       ID 5 = index 1
-	//       ID 6 = index 5
-	//       ID 7 = index 6
-	//    ]
 	//    chancap=1
 }
 
@@ -184,15 +175,6 @@ func ExampleTQueue_Push() {
 	//       {5:Task 6: group=group1 owner=1 at=1001 data="data6"}
 	//       {6:Task 7: group=group1 owner=1 at=1003 data="data7"}
 	//       {7:Task 4: group=group1 owner=1 at=1005 data="data4"}
-	//    ]
-	//    map=[
-	//       ID 1 = index 2
-	//       ID 2 = index 4
-	//       ID 3 = index 1
-	//       ID 4 = index 7
-	//       ID 5 = index 3
-	//       ID 6 = index 5
-	//       ID 7 = index 0
 	//    ]
 	//    chancap=1
 }
@@ -231,14 +213,6 @@ func ExampleTQueue_PopAt() {
 	//       {4:Task 7: group=group1 owner=1 at=1003 data="data7"}
 	//       {5:Task 6: group=group1 owner=1 at=1001 data="data6"}
 	//    ]
-	//    map=[
-	//       ID 1 = index 2
-	//       ID 3 = index 0
-	//       ID 4 = index 3
-	//       ID 5 = index 1
-	//       ID 6 = index 5
-	//       ID 7 = index 4
-	//    ]
 	//    chancap=1
 }
 
@@ -258,45 +232,6 @@ func ExampleTQueue_PeekAt() {
 
 	// Output:
 	// Task 4: group=group1 owner=1 at=1005 data="data4"
-}
-
-func ExampleTQueue_PeekById() {
-	tq := NewFromTasks("group1", BasicTasks)
-
-	fmt.Println(tq.PeekById(3))
-
-	// Output:
-	// Task 3: group=group1 owner=1 at=999 data="data3"
-}
-
-func ExampleTQueue_PopById() {
-	tq := NewFromTasks("group1", BasicTasks)
-
-	task := tq.PopById(3)
-	fmt.Println(task)
-	fmt.Println(tq)
-
-	// Output:
-	//
-	// Task 3: group=group1 owner=1 at=999 data="data3"
-	// TQ name=group1
-	//    heap=[
-	//       {0:Task 1: group=group1 owner=1 at=1000 data="data1"}
-	//       {1:Task 5: group=group1 owner=1 at=1002 data="data5"}
-	//       {2:Task 6: group=group1 owner=1 at=1001 data="data6"}
-	//       {3:Task 4: group=group1 owner=1 at=1005 data="data4"}
-	//       {4:Task 2: group=group1 owner=1 at=1004 data="data2"}
-	//       {5:Task 7: group=group1 owner=1 at=1003 data="data7"}
-	//    ]
-	//    map=[
-	//       ID 1 = index 0
-	//       ID 2 = index 4
-	//       ID 4 = index 3
-	//       ID 5 = index 1
-	//       ID 6 = index 2
-	//       ID 7 = index 5
-	//    ]
-	//    chancap=1
 }
 
 func ExampleTQueue_PopRandomAvailable_onlyOne() {
