@@ -36,6 +36,32 @@ type taskStore struct {
 	queues     map[string]*tqueue.TQueue
 }
 
+// Task is the atomic task unit. It contains a unique task, an owner ID, and an
+// Available Time (AT). The data is user-defined and can be basically anything.
+//
+// 0 is an invalid ID, and is used to indicate "please assign".
+// A negative AT means "delete this task".
+type Task struct {
+	ID      int64
+	OwnerID int32
+	GroupID int32
+
+	AvailableTime int64
+
+	Data interface{}
+}
+
+// String formats this task into a nice string value.
+func (t *Task) String() string {
+	return fmt.Sprintf("Task %d: group=%s owner=%d at=%d data=%#v", t.ID, t.Group, t.Owner, t.AT, t.Data)
+}
+
+// Priority returns an integer that can be used for heap ordering.
+// In this case it's just the AvailableTime.
+func (t *Task) Priority() int64 {
+	return t.AvailableTime
+}
+
 func New(journalDir string) *taskStore {
 	// TODO: ensure that the directory either exists or can be created.
 	return &taskStore{
