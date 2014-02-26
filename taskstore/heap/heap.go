@@ -28,11 +28,18 @@ import (
 
 type Item interface {
 	fmt.Stringer
+
+	// Priority is used to determine which element (lowest priority) is at the
+	// top of the heap.
 	Priority() int64
+
+	// Key is used to look up individual items inside of the heap.
+	Key() int64
 }
 
 type Heap struct {
 	itemHeap heapImpl
+	itemMap  heapMap
 	randChan chan float64
 }
 
@@ -45,11 +52,13 @@ func New() *Heap {
 func NewFromItems(items []Item) *Heap {
 	q := &Heap{
 		itemHeap: make(heapImpl, len(items)),
+		itemMap:  make(heapMap),
 		randChan: make(chan float64, 1),
 	}
 	for i, item := range items {
 		ti := &indexedItem{index: i, item: item}
 		q.itemHeap[i] = ti
+		q.itemMap[item.Key()] = ti
 	}
 	// Provide thread-safe random values.
 	go func() {
@@ -82,11 +91,13 @@ func (q *Heap) String() string {
 func (q *Heap) Push(item Item) {
 	ti := &indexedItem{item: item, index: -1}
 	heap.Push(&q.itemHeap, ti)
+	q.itemMap[item.Key()] = ti
 }
 
 // Pop removes the Item with the lowest Priority() from the Heap.
 func (q *Heap) Pop() Item {
 	ti := heap.Pop(&q.itemHeap).(*indexedItem)
+	delete(q.itemMap, ti.item.Key())
 	return ti.item
 }
 
@@ -112,6 +123,7 @@ func (q *Heap) PopAt(idx int) Item {
 	}
 	// Then we remove the nil item at the top.
 	heap.Pop(&q.itemHeap)
+	delete(q.itemMap, item.Key())
 
 	return item
 }
@@ -132,6 +144,25 @@ func (q *Heap) PeekAt(idx int) Item {
 		return nil
 	}
 	return q.itemHeap[idx].item
+}
+
+// PeekByKey finds the item with the given Key() and returns it, or nil if not found.
+func (q *Heap) PeekByKey(key int64) Item {
+	ti := q.itemMap[key]
+	if ti == nil {
+		return nil
+	}
+	return ti.item
+}
+
+// PopByKey finds the item with the given Key() and returns it, removing it
+// from the data structure.
+func (q *Heap) PopByKey(key int64) Item {
+	ti := q.itemMap[key]
+	if ti == nil {
+		return nil
+	}
+	return q.PopAt(ti.index)
 }
 
 // PopRandomConstrained walks the heap randomly choosing a child until it either
@@ -184,6 +215,7 @@ func (ti *indexedItem) String() string {
 }
 
 type heapImpl []*indexedItem
+type heapMap map[int64]*indexedItem
 
 func (h heapImpl) Len() int {
 	return len(h)

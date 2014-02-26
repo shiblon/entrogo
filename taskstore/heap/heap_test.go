@@ -27,6 +27,10 @@ func (t *thing) Priority() int64 {
 	return t.priority
 }
 
+func (t *thing) Key() int64 {
+	return t.id
+}
+
 func (t *thing) String() string {
 	return fmt.Sprintf("thing %v: priority=%v", t.id, t.priority)
 }
@@ -65,7 +69,7 @@ func Example_newFromItems() {
     //      ])
 }
 
-func ExampleTQueue_Push() {
+func ExampleHeap_Push() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -93,7 +97,7 @@ func ExampleTQueue_Push() {
     //      ])
 }
 
-func ExampleTQueue_Pop() {
+func ExampleHeap_Pop() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -122,7 +126,7 @@ func ExampleTQueue_Pop() {
 	//      ])
 }
 
-func ExampleTQueue_PopAt() {
+func ExampleHeap_PopAt() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -151,7 +155,7 @@ func ExampleTQueue_PopAt() {
 	//      ])
 }
 
-func ExampleTQueue_Peek() {
+func ExampleHeap_Peek() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -169,7 +173,7 @@ func ExampleTQueue_Peek() {
 	// thing 3: priority=999
 }
 
-func ExampleTQueue_PeekAt() {
+func ExampleHeap_PeekAt() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -187,7 +191,52 @@ func ExampleTQueue_PeekAt() {
 	// thing 4: priority=1005
 }
 
-func ExampleTQueue_PopRandomAvailable_onlyOne() {
+func ExampleHeap_PeekByKey() {
+	q := NewFromItems([]Item{
+		&thing{ 1, 1000 },
+		&thing{ 2, 1004 },
+		&thing{ 3, 999 },
+		&thing{ 4, 1005 },
+		&thing{ 5, 1002 },
+		&thing{ 6, 1001 },
+		&thing{ 7, 1003 },
+	})
+
+	fmt.Println(q.PeekByKey(5))
+
+	// Output:
+	//
+	// thing 5: priority=1002
+}
+
+func ExampleHeap_PopByKey() {
+	q := NewFromItems([]Item{
+		&thing{ 1, 1000 },
+		&thing{ 2, 1004 },
+		&thing{ 3, 999 },
+		&thing{ 4, 1005 },
+		&thing{ 5, 1002 },
+		&thing{ 6, 1001 },
+		&thing{ 7, 1003 },
+	})
+
+	fmt.Println(q.PopByKey(2))
+	fmt.Println(q)
+
+	// Output:
+	//
+	// thing 2: priority=1004
+	// Heap([
+	//         {0:thing 3: priority=999}
+	//         {1:thing 5: priority=1002}
+	//         {2:thing 1: priority=1000}
+	//         {3:thing 4: priority=1005}
+	//         {4:thing 7: priority=1003}
+	//         {5:thing 6: priority=1001}
+	//      ])
+}
+
+func ExampleHeap_PopRandomAvailable_onlyOne() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -206,7 +255,7 @@ func ExampleTQueue_PopRandomAvailable_onlyOne() {
 	// thing 3: priority=999
 }
 
-func ExampleTQueue_PopRandomAvailable_none() {
+func ExampleHeap_PopRandomAvailable_none() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -225,7 +274,7 @@ func ExampleTQueue_PopRandomAvailable_none() {
 	// <nil>
 }
 
-func ExampleTQueue_PopRandomAvailable_random() {
+func ExampleHeap_PopRandomAvailable_random() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
