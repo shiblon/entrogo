@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package heap
+package keyheap
 
 import (
 	"fmt"
@@ -40,7 +40,7 @@ func Example_new() {
 	fmt.Println(heap)
 
 	// Output:
-	// Heap([])
+	// KeyHeap([])
 }
 
 func Example_newFromItems() {
@@ -58,7 +58,7 @@ func Example_newFromItems() {
 
 	// Output:
 	//
-	// Heap([
+	// KeyHeap([
     //         {0:thing 3: priority=999}
     //         {1:thing 5: priority=1002}
     //         {2:thing 1: priority=1000}
@@ -69,7 +69,7 @@ func Example_newFromItems() {
     //      ])
 }
 
-func ExampleHeap_Push() {
+func ExampleKeyHeap_Push() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -85,7 +85,7 @@ func ExampleHeap_Push() {
 
 	// Output:
 	//
-	// Heap([
+	// KeyHeap([
 	//         {0:thing 8: priority=998}
     //         {1:thing 3: priority=999}
     //         {2:thing 1: priority=1000}
@@ -97,7 +97,7 @@ func ExampleHeap_Push() {
     //      ])
 }
 
-func ExampleHeap_Pop() {
+func ExampleKeyHeap_Pop() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -116,7 +116,7 @@ func ExampleHeap_Pop() {
 	// Output:
 	//
 	// thing 3: priority=999
-	// Heap([
+	// KeyHeap([
 	//         {0:thing 1: priority=1000}
 	//         {1:thing 5: priority=1002}
 	//         {2:thing 6: priority=1001}
@@ -126,7 +126,7 @@ func ExampleHeap_Pop() {
 	//      ])
 }
 
-func ExampleHeap_PopAt() {
+func ExampleKeyHeap_PopAt() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -145,7 +145,7 @@ func ExampleHeap_PopAt() {
 	// Output:
 	//
 	// thing 2: priority=1004
-	// Heap([
+	// KeyHeap([
 	//         {0:thing 3: priority=999}
 	//         {1:thing 5: priority=1002}
 	//         {2:thing 1: priority=1000}
@@ -155,7 +155,7 @@ func ExampleHeap_PopAt() {
 	//      ])
 }
 
-func ExampleHeap_Peek() {
+func ExampleKeyHeap_Peek() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -173,7 +173,7 @@ func ExampleHeap_Peek() {
 	// thing 3: priority=999
 }
 
-func ExampleHeap_PeekAt() {
+func ExampleKeyHeap_PeekAt() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -191,7 +191,7 @@ func ExampleHeap_PeekAt() {
 	// thing 4: priority=1005
 }
 
-func ExampleHeap_PeekByKey() {
+func ExampleKeyHeap_PeekByKey() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -209,7 +209,7 @@ func ExampleHeap_PeekByKey() {
 	// thing 5: priority=1002
 }
 
-func ExampleHeap_PopByKey() {
+func ExampleKeyHeap_PopByKey() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -226,7 +226,7 @@ func ExampleHeap_PopByKey() {
 	// Output:
 	//
 	// thing 2: priority=1004
-	// Heap([
+	// KeyHeap([
 	//         {0:thing 3: priority=999}
 	//         {1:thing 5: priority=1002}
 	//         {2:thing 1: priority=1000}
@@ -236,7 +236,7 @@ func ExampleHeap_PopByKey() {
 	//      ])
 }
 
-func ExampleHeap_PopRandomAvailable_onlyOne() {
+func ExampleKeyHeap_PopRandomAvailable_onlyOne() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -255,7 +255,7 @@ func ExampleHeap_PopRandomAvailable_onlyOne() {
 	// thing 3: priority=999
 }
 
-func ExampleHeap_PopRandomAvailable_none() {
+func ExampleKeyHeap_PopRandomAvailable_none() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },
@@ -274,7 +274,7 @@ func ExampleHeap_PopRandomAvailable_none() {
 	// <nil>
 }
 
-func ExampleHeap_PopRandomAvailable_random() {
+func ExampleKeyHeap_PopRandomAvailable_random() {
 	q := NewFromItems([]Item{
 		&thing{ 1, 1000 },
 		&thing{ 2, 1004 },

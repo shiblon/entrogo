@@ -13,10 +13,10 @@
 // limitations under the License.
 
 /*
-Package heap implements a library for a simple heap that allows peeking and
-popping from the middle.
+Package keyheap implements a library for a simple heap that allows peeking and
+popping from the middle based on a Key() in the stored interface.
 */
-package heap
+package keyheap
 
 import (
 	"container/heap"
@@ -27,8 +27,6 @@ import (
 )
 
 type Item interface {
-	fmt.Stringer
-
 	// Priority is used to determine which element (lowest priority) is at the
 	// top of the heap.
 	Priority() int64
@@ -37,20 +35,20 @@ type Item interface {
 	Key() int64
 }
 
-type Heap struct {
+type KeyHeap struct {
 	itemHeap heapImpl
 	itemMap  heapMap
 	randChan chan float64
 }
 
-// New creates a new empty Heap.
-func New() *Heap {
+// New creates a new empty KeyHeap.
+func New() *KeyHeap {
 	return NewFromItems(nil)
 }
 
-// NewFromItems creates a Heap from a slice of Item.
-func NewFromItems(items []Item) *Heap {
-	q := &Heap{
+// NewFromItems creates a KeyHeap from a slice of Item.
+func NewFromItems(items []Item) *KeyHeap {
+	q := &KeyHeap{
 		itemHeap: make(heapImpl, len(items)),
 		itemMap:  make(heapMap),
 		randChan: make(chan float64, 1),
@@ -74,7 +72,7 @@ func NewFromItems(items []Item) *Heap {
 }
 
 // String formats this heap into a string.
-func (q *Heap) String() string {
+func (q *KeyHeap) String() string {
 	hpieces := []string{"["}
 	for _, v := range q.itemHeap {
 		hpieces = append(hpieces, fmt.Sprintf("   %s", v))
@@ -84,25 +82,25 @@ func (q *Heap) String() string {
 	} else {
 		hpieces = append(hpieces, "]")
 	}
-	return fmt.Sprintf("Heap(%v)", strings.Join(hpieces, "\n     "))
+	return fmt.Sprintf("KeyHeap(%v)", strings.Join(hpieces, "\n     "))
 }
 
 // Push adds an Item to the heap.
-func (q *Heap) Push(item Item) {
+func (q *KeyHeap) Push(item Item) {
 	ti := &indexedItem{item: item, index: -1}
 	heap.Push(&q.itemHeap, ti)
 	q.itemMap[item.Key()] = ti
 }
 
-// Pop removes the Item with the lowest Priority() from the Heap.
-func (q *Heap) Pop() Item {
+// Pop removes the Item with the lowest Priority() from the KeyHeap.
+func (q *KeyHeap) Pop() Item {
 	ti := heap.Pop(&q.itemHeap).(*indexedItem)
 	delete(q.itemMap, ti.item.Key())
 	return ti.item
 }
 
 // PopAt removes an element from the specified index in the heap in O(log(n)) time.
-func (q *Heap) PopAt(idx int) Item {
+func (q *KeyHeap) PopAt(idx int) Item {
 	item := q.PeekAt(idx)
 	if item == nil {
 		return nil
@@ -129,17 +127,17 @@ func (q *Heap) PopAt(idx int) Item {
 }
 
 // Len returns the size of the heap.
-func (q *Heap) Len() int {
+func (q *KeyHeap) Len() int {
 	return len(q.itemHeap)
 }
 
 // Peek returns the top element in the heap (with the smallest Priority()), or nil if the heap is empty.
-func (q *Heap) Peek() Item {
+func (q *KeyHeap) Peek() Item {
 	return q.PeekAt(0)
 }
 
 // PeekAt finds the item at index idx in the heap and returns it. Returns nil if idx is out of bounds.
-func (q *Heap) PeekAt(idx int) Item {
+func (q *KeyHeap) PeekAt(idx int) Item {
 	if idx >= q.Len() {
 		return nil
 	}
@@ -147,7 +145,7 @@ func (q *Heap) PeekAt(idx int) Item {
 }
 
 // PeekByKey finds the item with the given Key() and returns it, or nil if not found.
-func (q *Heap) PeekByKey(key int64) Item {
+func (q *KeyHeap) PeekByKey(key int64) Item {
 	ti := q.itemMap[key]
 	if ti == nil {
 		return nil
@@ -157,7 +155,7 @@ func (q *Heap) PeekByKey(key int64) Item {
 
 // PopByKey finds the item with the given Key() and returns it, removing it
 // from the data structure.
-func (q *Heap) PopByKey(key int64) Item {
+func (q *KeyHeap) PopByKey(key int64) Item {
 	ti := q.itemMap[key]
 	if ti == nil {
 		return nil
@@ -171,7 +169,7 @@ func (q *Heap) PopByKey(key int64) Item {
 // Note that this greatly favors items near the top, because the probability of
 // traversing the tree very far quickly gets vanishingly small. There are
 // undoubtedly other interesting approaches to doing this.
-func (q *Heap) PopRandomConstrained(maxPriority int64) Item {
+func (q *KeyHeap) PopRandomConstrained(maxPriority int64) Item {
 	// Start at the leftmost location (the lowest value), and randomly jump to
 	// children so long as they are earlier than the maxPriority.
 	idx := 0
