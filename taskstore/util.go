@@ -16,30 +16,16 @@
 package taskstore
 
 import (
-	"fmt"
-	"math/rand"
+	"sync"
 )
 
-func ExampleTaskStore_Add() {
-	ts := NewStrict(NewCountJournaler())
-	adds := []*Task{
-		NewTask(13, "mygroup"),
-	}
-	owner := rand.Int31()
-	newtasks, err := ts.Update(owner, adds, nil, nil, nil)
-	fmt.Println(ts)
-	fmt.Println("New tasks:", newtasks, err)
-	fmt.Printf("Journal: %v", ts.Journaler())
+// un of the defer un(lock(x)) pattern.
+func un(f func()) {
+	f()
+}
 
-	// Output:
-	//
-	// TaskStore:
-	//   groups:
-	//     "mygroup"
-	//   snapshotting: false
-	//   num tasks: 1
-	//   last task id: 1
-	// New task ID: 1
-	// New task Owner: 13
-	// Journal: CountJournaler records written = 1
+// lock of the defer un(lock(x)) pattern.
+func lock(x sync.Locker) func() {
+	x.Lock()
+	return func() { x.Unlock() }
 }
