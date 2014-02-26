@@ -19,7 +19,7 @@ import (
 )
 
 type thing struct {
-	id int64
+	id       int64
 	priority int64
 }
 
@@ -45,13 +45,13 @@ func Example_new() {
 
 func Example_newFromItems() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	fmt.Println(q)
@@ -59,53 +59,53 @@ func Example_newFromItems() {
 	// Output:
 	//
 	// KeyHeap([
-    //         {0:thing 3: priority=999}
-    //         {1:thing 5: priority=1002}
-    //         {2:thing 1: priority=1000}
-    //         {3:thing 4: priority=1005}
-    //         {4:thing 2: priority=1004}
-    //         {5:thing 6: priority=1001}
-    //         {6:thing 7: priority=1003}
-    //      ])
+	//         {0:thing 3: priority=999}
+	//         {1:thing 5: priority=1002}
+	//         {2:thing 1: priority=1000}
+	//         {3:thing 4: priority=1005}
+	//         {4:thing 2: priority=1004}
+	//         {5:thing 6: priority=1001}
+	//         {6:thing 7: priority=1003}
+	//      ])
 }
 
 func ExampleKeyHeap_Push() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
-	q.Push(&thing{ 8, 998 })
+	q.Push(&thing{8, 998})
 	fmt.Println(q)
 
 	// Output:
 	//
 	// KeyHeap([
 	//         {0:thing 8: priority=998}
-    //         {1:thing 3: priority=999}
-    //         {2:thing 1: priority=1000}
-    //         {3:thing 5: priority=1002}
-    //         {4:thing 2: priority=1004}
-    //         {5:thing 6: priority=1001}
-    //         {6:thing 7: priority=1003}
-    //         {7:thing 4: priority=1005}
-    //      ])
+	//         {1:thing 3: priority=999}
+	//         {2:thing 1: priority=1000}
+	//         {3:thing 5: priority=1002}
+	//         {4:thing 2: priority=1004}
+	//         {5:thing 6: priority=1001}
+	//         {6:thing 7: priority=1003}
+	//         {7:thing 4: priority=1005}
+	//      ])
 }
 
 func ExampleKeyHeap_Pop() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	// Pop the lowest priority item.
@@ -128,13 +128,13 @@ func ExampleKeyHeap_Pop() {
 
 func ExampleKeyHeap_PopAt() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	// Pop the lowest priority item.
@@ -157,13 +157,13 @@ func ExampleKeyHeap_PopAt() {
 
 func ExampleKeyHeap_Peek() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	fmt.Println(q.Peek())
@@ -175,13 +175,13 @@ func ExampleKeyHeap_Peek() {
 
 func ExampleKeyHeap_PeekAt() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	fmt.Println(q.PeekAt(3))
@@ -193,13 +193,13 @@ func ExampleKeyHeap_PeekAt() {
 
 func ExampleKeyHeap_PeekByKey() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	fmt.Println(q.PeekByKey(5))
@@ -211,13 +211,13 @@ func ExampleKeyHeap_PeekByKey() {
 
 func ExampleKeyHeap_PopByKey() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	fmt.Println(q.PopByKey(2))
@@ -238,13 +238,13 @@ func ExampleKeyHeap_PopByKey() {
 
 func ExampleKeyHeap_PopRandomAvailable_onlyOne() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	thing := q.PopRandomConstrained(999) // Only one matches.
@@ -257,13 +257,13 @@ func ExampleKeyHeap_PopRandomAvailable_onlyOne() {
 
 func ExampleKeyHeap_PopRandomAvailable_none() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	thing := q.PopRandomConstrained(998) // None match
@@ -276,13 +276,13 @@ func ExampleKeyHeap_PopRandomAvailable_none() {
 
 func ExampleKeyHeap_PopRandomAvailable_random() {
 	q := NewFromItems([]Item{
-		&thing{ 1, 1000 },
-		&thing{ 2, 1004 },
-		&thing{ 3, 999 },
-		&thing{ 4, 1005 },
-		&thing{ 5, 1002 },
-		&thing{ 6, 1001 },
-		&thing{ 7, 1003 },
+		&thing{1, 1000},
+		&thing{2, 1004},
+		&thing{3, 999},
+		&thing{4, 1005},
+		&thing{5, 1002},
+		&thing{6, 1001},
+		&thing{7, 1003},
 	})
 
 	t := q.PopRandomConstrained(1001)

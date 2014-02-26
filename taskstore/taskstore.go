@@ -434,9 +434,22 @@ func (t *TaskStore) tasksForGroup(lg taskListGroup) ([]*Task, error) {
 	if limit <= 0 || limit > h.Len() {
 		limit = h.Len()
 	}
-	tasks := make([]*Task, limit)
-	for i := range tasks {
-		tasks[i] = h.PeekAt(i).(*Task)
+	var tasks []*Task
+	if lg.AllowOwned {
+		tasks = make([]*Task, limit)
+		for i := range tasks {
+			tasks[i] = h.PeekAt(i).(*Task)
+		}
+	} else {
+		now := nowMillis()
+		tasks = make([]*Task, 0, limit)
+		for i, found := 0, 0; i < h.Len() && found < limit; i++ {
+			task := h.PeekAt(i).(*Task)
+			if task.AvailableTime <= now {
+				tasks = append(tasks, task)
+				found++
+			}
+		}
 	}
 	return tasks, nil
 }
@@ -552,8 +565,8 @@ func (t *TaskStore) ListGroup(name string, limit int) ([]*Task, error) {
 
 func (t *TaskStore) ClaimTasks(owner int32, names []string, duration int64) ([]*Task, error) {
 	claim := taskClaim{
-		OwnerID: owner,
-		Names: names,
+		OwnerID:  owner,
+		Names:    names,
 		Duration: duration,
 	}
 	resp := t.sendRequest(claim, t.claimChan)
@@ -572,8 +585,9 @@ type taskUpdate struct {
 // taskListGroup is a query for up to Limit tasks in the given group name. If <=
 // 0, all tasks are returned.
 type taskListGroup struct {
-	Name  string
-	Limit int
+	Name       string
+	Limit      int
+	AllowOwned bool
 }
 
 // taskClaim is a query for claiming one task from each of the specified groups.
