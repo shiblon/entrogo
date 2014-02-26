@@ -69,6 +69,7 @@ type TaskStore struct {
 	updateChan    chan request
 	listGroupChan chan request
 	claimChan     chan request
+	groupsChan    chan request
 }
 
 // NewStrict returns a TaskStore with journaling done synchronously
@@ -323,6 +324,16 @@ func (t *TaskStore) applySingleDiff(diff updateDiff, readonly bool) {
 	ot := t.getTask(diff.OldID)
 	nt := diff.NewTask
 
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
+
 	if ot != nil {
 		delete(t.tmpTasks, ot.ID)
 		t.heaps[ot.Group].PopByKey(ot.ID)
@@ -452,6 +463,14 @@ func (t *TaskStore) tasksForGroup(lg taskListGroup) ([]*Task, error) {
 		}
 	}
 	return tasks, nil
+}
+
+func (t *TaskStore) getGroups() []string {
+	groups := make([]string, 0, len(t.heaps))
+	for k := range t.heaps {
+		groups = append(groups, k)
+	}
+	return groups
 }
 
 func (t *TaskStore) claimFromGroups(claim taskClaim) ([]*Task, error) {
@@ -629,6 +648,9 @@ func (t *TaskStore) handle() {
 		case req := <-t.claimChan:
 			tasks, err := t.claimFromGroups(req.Val.(taskClaim))
 			req.ResultChan <- response{tasks, err}
+		case req := <-t.groupsChan:
+			groups := t.getGroups()
+			req.ResultChan <- response{groups, err}
 		}
 		// TODO: add a timeout case that triggers depletion.
 	}
