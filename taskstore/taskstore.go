@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"code.google.com/p/entrogo/taskstore/heap"
+	"code.google.com/p/entrogo/keyheap"
 )
 
 const (
@@ -91,7 +91,7 @@ func (t *Task) Priority() int64 {
 	return t.AvailableTime
 }
 
-// Key returns the ID, to satisfy the heap.Item interface. This allows tasks to
+// Key returns the ID, to satisfy the keyheap.Item interface. This allows tasks to
 // be found and removed from the middle of the heap.
 func (t *Task) Key() int64 {
 	return t.ID
@@ -100,7 +100,7 @@ func (t *Task) Key() int64 {
 // TaskStore maintains the tasks.
 type TaskStore struct {
 	// A heap for each group.
-	heaps map[string]*heap.Heap
+	heaps map[string]*keyheap.KeyHeap
 
 	// All tasks known to this TaskStore.
 	tasks map[int64]*Task
@@ -149,7 +149,7 @@ func NewOpportunistic(journaler Journaler) *TaskStore {
 // is not idempotent, this is the right one to use.
 func NewStrict(journaler Journaler) *TaskStore {
 	return &TaskStore{
-		heaps:     make(map[string]*heap.Heap),
+		heaps:     make(map[string]*keyheap.KeyHeap),
 		tasks:     make(map[int64]*Task),
 		tmpTasks:  make(map[int64]*Task),
 		delTasks:  make(map[int64]bool),
@@ -474,7 +474,7 @@ func (t *TaskStore) applySingleDiff(diff updateDiff, readonly bool) {
 func (t *TaskStore) heapPush(task *Task) {
 	h, ok := t.heaps[task.Group]
 	if !ok {
-		h = heap.New()
+		h = keyheap.New()
 		t.heaps[task.Group] = h
 	}
 	h.Push(task)
