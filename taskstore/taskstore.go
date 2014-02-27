@@ -55,13 +55,13 @@ type TaskStore struct {
 	tmpTasks map[int64]*Task
 	delTasks map[int64]bool
 
-	// To write to the journal opportunistically, push transactions into this
-	// channel.
-	journalChan chan []updateDiff
-
 	// The journal utility that actually does the work of appending and
 	// rotating.
 	journaler journal.Interface
+
+	// To write to the journal opportunistically, push transactions into this
+	// channel.
+	journalChan chan []updateDiff
 
 	snapMutex     *sync.Mutex
 	_snapshotting bool // always access this with the mutex
@@ -71,6 +71,7 @@ type TaskStore struct {
 	listGroupChan chan request
 	claimChan     chan request
 	groupsChan    chan request
+	snapshotChan  chan request
 }
 
 // NewStrict returns a TaskStore with journaling done synchronously
@@ -82,15 +83,19 @@ type TaskStore struct {
 // is not idempotent, this is the right one to use.
 func NewStrict(journaler journal.Interface) *TaskStore {
 	ts := &TaskStore{
-		heaps:         make(map[string]*keyheap.KeyHeap),
-		tasks:         make(map[int64]*Task),
-		tmpTasks:      make(map[int64]*Task),
-		delTasks:      make(map[int64]bool),
-		snapMutex:     new(sync.Mutex),
-		journaler:     journaler,
-		updateChan:    make(chan request, 1),
-		listGroupChan: make(chan request, 1),
-		claimChan:     make(chan request, 1),
+		journaler: journaler,
+
+		heaps:     make(map[string]*keyheap.KeyHeap),
+		tasks:     make(map[int64]*Task),
+		tmpTasks:  make(map[int64]*Task),
+		delTasks:  make(map[int64]bool),
+		snapMutex: new(sync.Mutex),
+
+		updateChan:    make(chan request),
+		listGroupChan: make(chan request),
+		claimChan:     make(chan request),
+		groupsChan:    make(chan request),
+		snapshotChan:  make(chan request),
 	}
 	// Handle requests for updates and reads.
 	go ts.handle()
@@ -124,9 +129,11 @@ func (t *TaskStore) snapshotting() bool {
 	return t._snapshotting
 }
 
-func (t *TaskStore) setSnapshotting(val bool) {
+func (t *TaskStore) setSnapshotting(val bool) bool {
 	defer un(lock(t.snapMutex))
+	old := t._snapshotting
 	t._snapshotting = val
+	return old
 }
 
 // String formats this as a string. Shows minimal information like group names.
@@ -193,19 +200,23 @@ func (t *TaskStore) nextID() int64 {
 	return t.lastTaskID
 }
 
-// startSnapshot takes care of using the journaler to create a snapshot.
-func (t *TaskStore) startSnapshot() {
-	t.setSnapshotting(true)
+// snapshot takes care of using the journaler to create a snapshot.
+func (t *TaskStore) snapshot() error {
+	wasSnapshotting := t.setSnapshotting(true)
+	if wasSnapshotting {
+		return fmt.Errorf("attempted snapshot while already in progress")
+	}
+
 	data := make(chan interface{}, 1)
 	done := make(chan error, 1)
-
 	go func() {
 		done <- t.journaler.Snapshot(data)
 	}()
 
 	go func() {
+		defer t.setSnapshotting(false)
 		defer close(data)
-	LOOP:
+
 		for _, task := range t.tasks {
 			select {
 			case data <- task:
@@ -214,13 +225,12 @@ func (t *TaskStore) startSnapshot() {
 				if err != nil {
 					log.Printf("snapshot failed: %v", err)
 				}
-				break LOOP
+				return
 			}
 		}
-
-		t.setSnapshotting(false)
 	}()
 
+	return nil
 }
 
 func (t *TaskStore) journalAppend(transaction []updateDiff) {
@@ -237,12 +247,9 @@ func (t *TaskStore) journalAppend(transaction []updateDiff) {
 // Each element of the transaction contains information about the old task and
 // the new task. Deletions are represented by a new nil task.
 func (t *TaskStore) applyTransaction(transaction []updateDiff) {
-	// If the journal is about to rotate, here we set the snapshotting flag and
-	// kick off the routine that takes a snapshot.
 	if t.journaler.ShardFinished() {
-		t.startSnapshot()
+		t.snapshot()
 	}
-
 	t.journalAppend(transaction)
 
 	// Make sure that all records in the transaction see the same value for snapshotting.
@@ -250,7 +257,7 @@ func (t *TaskStore) applyTransaction(transaction []updateDiff) {
 	// because there are only two cases:
 	// 1) snapshotting = false
 	// 		This is safe because the only way for snapshotting to become true
-	// 		is in startSnapshot, called above in this function. Thus, its value
+	// 		is in snapshot, called above in this function. Thus, its value
 	// 		is fixed here. Note that we assume a single-threaded model in the
 	// 		entire execution of this taskstore.
 	// 2) snapshotting = true
@@ -268,40 +275,32 @@ func (t *TaskStore) applyTransaction(transaction []updateDiff) {
 	// of the cache into the main data section. On the off chance that
 	// snapshotting finished by now, we check it again.
 	if !t.snapshotting() {
-		t.synchronousPartialDepleteCache(maxCacheDepletion)
+		t.partialDepleteCache(maxCacheDepletion)
 	}
 }
 
-func (t *TaskStore) synchronousPartialDepleteCache(maxToTransfer int) {
-	// We don't go wild with this because it might be pretty big, depending on
-	// the length of time the snapshot took, so we just try to ensure progress.
-	// TODO(chris): this should happen even when there is no activity on the
-	// taskstore. Can we set this up to work without blocking legitimate
-	// requests?
-	todo := maxToTransfer
-	if len(t.tmpTasks) > 0 {
-		if todo > len(t.tmpTasks) {
-			todo = len(t.tmpTasks)
-		}
-		for id, task := range t.tmpTasks {
-			todo--
-			if todo < 0 {
-				break
+// partialDepleteCache tries to move some of the elements in
+// temporary structures into the main data area.
+func (t *TaskStore) partialDepleteCache(todo int) {
+	if todo <= 0 {
+		todo = 1
+	}
+	for ; todo > 0; todo-- {
+		switch {
+		case len(t.tmpTasks) > 0:
+			for id, task := range t.tmpTasks {
+				t.tasks[id] = task
+				delete(t.tmpTasks, id)
+				break // just do one
 			}
-			t.tasks[id] = task
-			delete(t.tmpTasks, id)
-		}
-	} else if len(t.delTasks) > 0 {
-		if todo > len(t.delTasks) {
-			todo = len(t.delTasks)
-		}
-		for id := range t.delTasks {
-			todo--
-			if todo < 0 {
-				break
+		case len(t.delTasks) > 0:
+			for id := range t.delTasks {
+				delete(t.tasks, id)
+				delete(t.delTasks, id)
+				break // just do one
 			}
-			delete(t.tasks, id)
-			delete(t.delTasks, id)
+		default:
+			todo = 0 // nothing left above
 		}
 	}
 }
@@ -316,19 +315,9 @@ func (t *TaskStore) applySingleDiff(diff updateDiff, readonly bool) {
 	ot := t.getTask(diff.OldID)
 	nt := diff.NewTask
 
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-	// TODO(chris): when deleting and a heap becomes empty, delete that heap.
-
 	if ot != nil {
 		delete(t.tmpTasks, ot.ID)
-		t.heaps[ot.Group].PopByKey(ot.ID)
+		t.heapPop(ot.Group, ot.ID)
 		if readonly {
 			t.delTasks[ot.ID] = true
 		} else {
@@ -345,6 +334,19 @@ func (t *TaskStore) applySingleDiff(diff updateDiff, readonly bool) {
 	}
 }
 
+// heapPop takes the specified task ID out of the heaps, and removes the group
+// if it is now empty.
+func (t *TaskStore) heapPop(group string, id int64) {
+	h, ok := t.heaps[group]
+	if !ok {
+		return
+	}
+	h.PopByKey(id)
+	if h.Len() == 0 {
+		delete(t.heaps, group)
+	}
+}
+
 // heapPush pushes something onto the heap for the task's group. Creates a new
 // group if this one does not already exist.
 func (t *TaskStore) heapPush(task *Task) {
@@ -356,8 +358,8 @@ func (t *TaskStore) heapPush(task *Task) {
 	h.Push(task)
 }
 
-// doUpdate performs (or attempts to perform) a batch task update.
-func (t *TaskStore) doUpdate(up taskUpdate) ([]*Task, error) {
+// update performs (or attempts to perform) a batch task update.
+func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	uerr := UpdateError{}
 	transaction := make([]updateDiff, len(up.Changes))
 
@@ -428,7 +430,7 @@ func (t *TaskStore) doUpdate(up taskUpdate) ([]*Task, error) {
 	return newTasks, nil
 }
 
-func (t *TaskStore) tasksForGroup(lg taskListGroup) ([]*Task, error) {
+func (t *TaskStore) listGroup(lg reqListGroup) ([]*Task, error) {
 	h, ok := t.heaps[lg.Name]
 	if !ok {
 		return nil, fmt.Errorf("requested group %q does not exist", lg.Name)
@@ -457,7 +459,7 @@ func (t *TaskStore) tasksForGroup(lg taskListGroup) ([]*Task, error) {
 	return tasks, nil
 }
 
-func (t *TaskStore) getGroups() []string {
+func (t *TaskStore) groups() []string {
 	groups := make([]string, 0, len(t.heaps))
 	for k := range t.heaps {
 		groups = append(groups, k)
@@ -465,7 +467,7 @@ func (t *TaskStore) getGroups() []string {
 	return groups
 }
 
-func (t *TaskStore) claimFromGroups(claim taskClaim) ([]*Task, error) {
+func (t *TaskStore) claim(claim reqClaim) ([]*Task, error) {
 	now := nowMillis()
 	nmap := make(map[string]bool)
 	for _, name := range claim.Names {
@@ -509,21 +511,12 @@ func (t *TaskStore) claimFromGroups(claim taskClaim) ([]*Task, error) {
 
 	// Because claiming involves setting the owner and a future availability,
 	// we update these acquired tasks.
-	up := taskUpdate{
+	up := reqUpdate{
 		OwnerID:      claim.OwnerID,
 		Changes:      tasks,
 		Dependencies: nil,
 	}
-	return t.doUpdate(up)
-}
-
-func (t *TaskStore) sendRequest(val interface{}, ch chan request) response {
-	req := request{
-		Val:        val,
-		ResultChan: make(chan response, 1),
-	}
-	ch <- req
-	return <-req.ResultChan
+	return t.update(up)
 }
 
 // Update makes changes to the task store. The owner is the ID of the
@@ -531,7 +524,7 @@ func (t *TaskStore) sendRequest(val interface{}, ch chan request) response {
 // dep is specified, it is a list of task IDs that must be present for the
 // update to succeed.
 func (t *TaskStore) Update(owner int32, add, change []*Task, del []int64, dep []int64) ([]*Task, error) {
-	up := taskUpdate{
+	up := reqUpdate{
 		OwnerID:      owner,
 		Changes:      make([]*Task, 0, len(add)+len(change)+len(del)),
 		Dependencies: dep,
@@ -565,23 +558,33 @@ func (t *TaskStore) Update(owner int32, add, change []*Task, del []int64, dep []
 	return resp.Val.([]*Task), resp.Err
 }
 
-func (t *TaskStore) ListGroup(name string, limit int) ([]*Task, error) {
-	lg := taskListGroup{
-		Name:  name,
-		Limit: limit,
+// ListGroup tries to find tasks for the given group name. The number of tasks
+// returned will be no more than the specified limit. A limit of 0 or less
+// indicates that all possible tasks should be returned. If allowOwned is
+// specified, then even tasks with AvailableTime in the future that are owned
+// by other clients will be returned.
+func (t *TaskStore) ListGroup(name string, limit int, allowOwned bool) ([]*Task, error) {
+	lg := reqListGroup{
+		Name:       name,
+		Limit:      limit,
+		AllowOwned: allowOwned,
 	}
 	resp := t.sendRequest(lg, t.listGroupChan)
 	return resp.Val.([]*Task), resp.Err
 }
 
 // Groups returns a list of all of the groups known to this task store.
-func (t *TaskStore) Groups() []string {
+func (t *TaskStore) Groups() ([]string, error) {
 	resp := t.sendRequest(nil, t.groupsChan)
 	return resp.Val.([]string), resp.Err
 }
 
-func (t *TaskStore) ClaimTasks(owner int32, names []string, duration int64) ([]*Task, error) {
-	claim := taskClaim{
+// Claim attempts to find one random unowned task in each of the specified
+// group names and set the ownership to the specified owner. If successful, the
+// newly-owned tasks are returned with their AvailableTime set to now +
+// duration (in milliseconds).
+func (t *TaskStore) Claim(owner int32, names []string, duration int64) ([]*Task, error) {
+	claim := reqClaim{
 		OwnerID:  owner,
 		Names:    names,
 		Duration: duration,
@@ -590,25 +593,32 @@ func (t *TaskStore) ClaimTasks(owner int32, names []string, duration int64) ([]*
 	return resp.Val.([]*Task), resp.Err
 }
 
-// taskUpdate contains the necessary fields for requesting an update to a
+// Snapshot tries to force a snapshot to start immediately. It only fails if
+// there is already one in progress.
+func (t *TaskStore) Snapshot() error {
+	resp := t.sendRequest(nil, t.snapshotChan)
+	return resp.Err
+}
+
+// reqUpdate contains the necessary fields for requesting an update to a
 // set of tasks, including changes, deletions, and tasks on whose existence the
 // update depends.
-type taskUpdate struct {
+type reqUpdate struct {
 	OwnerID      int32
 	Changes      []*Task
 	Dependencies []int64
 }
 
-// taskListGroup is a query for up to Limit tasks in the given group name. If <=
+// reqListGroup is a query for up to Limit tasks in the given group name. If <=
 // 0, all tasks are returned.
-type taskListGroup struct {
+type reqListGroup struct {
 	Name       string
 	Limit      int
 	AllowOwned bool
 }
 
-// taskClaim is a query for claiming one task from each of the specified groups.
-type taskClaim struct {
+// reqClaim is a query for claiming one task from each of the specified groups.
+type reqClaim struct {
 	// The owner that is claiming the task.
 	OwnerID int32
 
@@ -621,35 +631,54 @@ type taskClaim struct {
 	Duration int64
 }
 
+// request wraps a query structure, and is used internally to handle the
+// multi-channel request/response protocol.
 type request struct {
 	Val        interface{}
 	ResultChan chan response
 }
 
+// response wraps a value by adding an error to it.
 type response struct {
 	Val interface{}
 	Err error
+}
+
+// sendRequest sends val on the channel ch and waits for a response.
+func (t *TaskStore) sendRequest(val interface{}, ch chan request) response {
+	req := request{
+		Val:        val,
+		ResultChan: make(chan response, 1),
+	}
+	ch <- req
+	return <-req.ResultChan
 }
 
 // handle deals with all of the basic operations on the task store. All outside
 // requests come through this single loop, which is part of the single-threaded
 // access design enforcement.
 func (t *TaskStore) handle() {
+	idler := time.Tick(5 * time.Second)
 	for {
 		select {
 		case req := <-t.updateChan:
-			tasks, err := t.doUpdate(req.Val.(taskUpdate))
+			tasks, err := t.update(req.Val.(reqUpdate))
 			req.ResultChan <- response{tasks, err}
 		case req := <-t.listGroupChan:
-			tasks, err := t.tasksForGroup(req.Val.(taskListGroup))
+			tasks, err := t.listGroup(req.Val.(reqListGroup))
 			req.ResultChan <- response{tasks, err}
 		case req := <-t.claimChan:
-			tasks, err := t.claimFromGroups(req.Val.(taskClaim))
+			tasks, err := t.claim(req.Val.(reqClaim))
 			req.ResultChan <- response{tasks, err}
 		case req := <-t.groupsChan:
-			groups := t.getGroups()
+			groups := t.groups()
 			req.ResultChan <- response{groups, nil}
+		case req := <-t.snapshotChan:
+			err := t.snapshot()
+			req.ResultChan <- response{nil, err}
+		case <-idler:
+			// The idler got a chance to tick. Trigger a short depletion.
+			t.partialDepleteCache(maxCacheDepletion)
 		}
-		// TODO: add a timeout case that triggers depletion.
 	}
 }

@@ -45,17 +45,6 @@ func NewTask(owner int32, group string) *Task {
 	}
 }
 
-// NewTaskAvailability creates a new task with a specific "AvailableTime",
-// meaning that it will become available to be owned by someone else at the
-// given number of milliseconds from the epoch.
-func NewTaskAvailability(owner int32, group string, at int64) *Task {
-	return &Task{
-		OwnerID:       owner,
-		Group:         group,
-		AvailableTime: at,
-	}
-}
-
 // Copy performs a shallow copy of this task.
 func (t *Task) Copy() *Task {
 	newTask := *t
