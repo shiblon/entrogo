@@ -56,7 +56,7 @@ func NewTaskAvailability(owner int32, group string, at int64) *Task {
 	}
 }
 
-// Copy this task (shallow - if Data is a pointer, it won't get copied).
+// Copy performs a shallow copy of this task.
 func (t *Task) Copy() *Task {
 	newTask := *t
 	return &newTask

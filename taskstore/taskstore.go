@@ -115,7 +115,7 @@ func NewOpportunistic(journaler journal.Interface) *TaskStore {
 	return ts
 }
 
-func (t TaskStore) Journaler() journal.Interface {
+func (t *TaskStore) Journaler() journal.Interface {
 	return t.journaler
 }
 
@@ -130,7 +130,7 @@ func (t *TaskStore) setSnapshotting(val bool) {
 }
 
 // String formats this as a string. Shows minimal information like group names.
-func (t TaskStore) String() string {
+func (t *TaskStore) String() string {
 	strs := []string{"TaskStore:", "  groups:"}
 	for name := range t.heaps {
 		strs = append(strs, fmt.Sprintf("    %q", name))
@@ -140,15 +140,6 @@ func (t TaskStore) String() string {
 		fmt.Sprintf("  num tasks: %d", len(t.tasks)+len(t.tmpTasks)-len(t.delTasks)),
 		fmt.Sprintf("  last task id: %d", t.lastTaskID))
 	return strings.Join(strs, "\n")
-}
-
-// Groups returns a list of all of the groups known to this task store.
-func (t TaskStore) Groups() []string {
-	g := make([]string, 0, len(t.heaps))
-	for n := range t.heaps {
-		g = append(g, n)
-	}
-	return g
 }
 
 // nowMillis returns the current time in milliseconds since the UTC epoch.
@@ -581,6 +572,12 @@ func (t *TaskStore) ListGroup(name string, limit int) ([]*Task, error) {
 	}
 	resp := t.sendRequest(lg, t.listGroupChan)
 	return resp.Val.([]*Task), resp.Err
+}
+
+// Groups returns a list of all of the groups known to this task store.
+func (t *TaskStore) Groups() []string {
+	resp := t.sendRequest(nil, t.groupsChan)
+	return resp.Val.([]string), resp.Err
 }
 
 func (t *TaskStore) ClaimTasks(owner int32, names []string, duration int64) ([]*Task, error) {
