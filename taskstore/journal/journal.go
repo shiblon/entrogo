@@ -13,7 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package taskstore
+/* Package journal is an implementation and interface specification for an
+* append-only journal with rotations. It contains a few simple implementations,
+* as well.
+*/
+package journal
 
 import (
 	"bytes"
@@ -21,7 +25,7 @@ import (
 	"fmt"
 )
 
-type Journaler interface {
+type Interface interface {
 	// ShardFinished is expected to return true precisely when the next journal
 	// write will trigger a rotation, i.e., the current shard will be closed and
 	// made immutable, and a new shard will be started on the next write.
@@ -40,63 +44,63 @@ type Journaler interface {
 	Snapshot(records <-chan interface{}) error
 }
 
-type BytesJournaler struct {
+type Bytes struct {
 	enc  *gob.Encoder
 	buff *bytes.Buffer
 }
 
-func NewBytesJournaler() *BytesJournaler {
-	j := &BytesJournaler{
+func NewBytes() *Bytes{
+	j := &Bytes{
 		buff: new(bytes.Buffer),
 	}
 	j.enc = gob.NewEncoder(j.buff)
 	return j
 }
 
-func (j BytesJournaler) ShardFinished() bool {
+func (j Bytes) ShardFinished() bool {
 	return false
 }
 
-func (j BytesJournaler) AppendRecord(rec interface{}) error {
+func (j Bytes) AppendRecord(rec interface{}) error {
 	return j.enc.Encode(rec)
 }
 
-func (j BytesJournaler) Bytes() []byte {
+func (j Bytes) Bytes() []byte {
 	return j.buff.Bytes()
 }
 
-func (j BytesJournaler) String() string {
+func (j Bytes) String() string {
 	return j.buff.String()
 }
 
-func (j *BytesJournaler) Snapshot(records <-chan interface{}) error {
+func (j *Bytes) Snapshot(records <-chan interface{}) error {
 	return nil
 }
 
-type CountJournaler int64
+type Count int64
 
-func NewCountJournaler() *CountJournaler {
-	return new(CountJournaler)
+func NewCount() *Count {
+	return new(Count)
 }
 
-func (j CountJournaler) ShardFinished() bool {
+func (j Count) ShardFinished() bool {
 	return false
 }
 
-func (j *CountJournaler) AppendRecord(_ interface{}) error {
+func (j *Count) AppendRecord(_ interface{}) error {
 	*j++
 	return nil
 }
 
-func (j CountJournaler) String() string {
-	return fmt.Sprintf("CountJournaler records written = %d", j)
+func (j Count) String() string {
+	return fmt.Sprintf("records written = %d", j)
 }
 
-func (j CountJournaler) Snapshot(records <-chan interface{}) error {
+func (j Count) Snapshot(records <-chan interface{}) error {
 	num := 0
 	for _ = range records {
 		num++
 	}
-	fmt.Printf("CountJournaler snapshotted %d records", num)
+	fmt.Printf("snapshotted %d records", num)
 	return nil
 }

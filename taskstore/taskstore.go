@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"code.google.com/p/entrogo/keyheap"
+	"code.google.com/p/entrogo/taskstore/journal"
 )
 
 const (
@@ -60,7 +61,7 @@ type TaskStore struct {
 
 	// The journal utility that actually does the work of appending and
 	// rotating.
-	journaler Journaler
+	journaler journal.Interface
 
 	snapMutex     *sync.Mutex
 	_snapshotting bool // always access this with the mutex
@@ -79,7 +80,7 @@ type TaskStore struct {
 // Use this if you don't mind slower mutations and really need committed tasks
 // to stay committed under all circumstances. In particular, if task execution
 // is not idempotent, this is the right one to use.
-func NewStrict(journaler Journaler) *TaskStore {
+func NewStrict(journaler journal.Interface) *TaskStore {
 	ts := &TaskStore{
 		heaps:         make(map[string]*keyheap.KeyHeap),
 		tasks:         make(map[int64]*Task),
@@ -102,7 +103,7 @@ func NewStrict(journaler Journaler) *TaskStore {
 // crash, and find that recently committed tasks are lost.
 // If task execution is idempotent, this is safe, and is much faster, as it
 // writes to disk when it gets a chance.
-func NewOpportunistic(journaler Journaler) *TaskStore {
+func NewOpportunistic(journaler journal.Interface) *TaskStore {
 	ts := NewStrict(journaler)
 	ts.journalChan = make(chan []updateDiff, 1)
 	go func() {
@@ -114,7 +115,7 @@ func NewOpportunistic(journaler Journaler) *TaskStore {
 	return ts
 }
 
-func (t TaskStore) Journaler() Journaler {
+func (t TaskStore) Journaler() journal.Interface {
 	return t.journaler
 }
 
@@ -650,7 +651,7 @@ func (t *TaskStore) handle() {
 			req.ResultChan <- response{tasks, err}
 		case req := <-t.groupsChan:
 			groups := t.getGroups()
-			req.ResultChan <- response{groups, err}
+			req.ResultChan <- response{groups, nil}
 		}
 		// TODO: add a timeout case that triggers depletion.
 	}

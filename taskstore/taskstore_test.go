@@ -18,10 +18,12 @@ package taskstore
 import (
 	"fmt"
 	"math/rand"
+
+	"code.google.com/p/entrogo/taskstore/journal"
 )
 
 func ExampleTaskStore_Add() {
-	ts := NewStrict(NewCountJournaler())
+	ts := NewStrict(journal.NewCount())
 	adds := []*Task{
 		NewTask(13, "mygroup"),
 	}
