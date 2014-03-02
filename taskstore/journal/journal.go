@@ -1,6 +1,5 @@
 // Copyright 2014 Chris Monson <shiblon@gmail.com>
 //
-//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -41,7 +40,7 @@ type Interface interface {
 	// successfully processed. Whether the current shard is full or not, this
 	// function should immediately trigger a shard rotation so that subsequent
 	// calls to AppendRecord go to a new shard.
-	Snapshot(records <-chan interface{}) error
+	Snapshot(records <-chan interface{}, resp <-chan error) error
 }
 
 type Bytes struct {
@@ -73,7 +72,10 @@ func (j Bytes) String() string {
 	return j.buff.String()
 }
 
-func (j *Bytes) Snapshot(records <-chan interface{}) error {
+func (j *Bytes) Snapshot(records <-chan interface{}, snapresp <-chan error) error {
+	go func() {
+		snapresp <- nil
+	}()
 	return nil
 }
 
@@ -96,11 +98,14 @@ func (j Count) String() string {
 	return fmt.Sprintf("records written = %d", j)
 }
 
-func (j Count) Snapshot(records <-chan interface{}) error {
-	num := 0
-	for _ = range records {
-		num++
-	}
-	fmt.Printf("snapshotted %d records", num)
+func (j Count) Snapshot(records <-chan interface{}, snapresp <-chan error) error {
+	go func() {
+		num := 0
+		for _ = range records {
+			num++
+		}
+		fmt.Printf("snapshotted %d records", num)
+		snapresp <- nil
+	}()
 	return nil
 }

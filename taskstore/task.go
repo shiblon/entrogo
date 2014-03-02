@@ -33,8 +33,10 @@ type Task struct {
 	// A value of 0 indicates that it should be assigned "now" when pushed.
 	AvailableTime int64
 
-	// Data holds the data for this task. Must be gob-serializable.
-	Data interface{}
+	// Data holds the data for this task.
+	// If you want raw bytes, you'll need to encode them
+	// somehow.
+	Data string
 }
 
 // NewTask creates a new task for this owner and group.

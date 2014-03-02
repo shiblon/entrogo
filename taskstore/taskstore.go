@@ -209,8 +209,10 @@ func (t *TaskStore) snapshot() error {
 
 	data := make(chan interface{}, 1)
 	done := make(chan error, 1)
+	snapresp := make(chan error, 1)
+
 	go func() {
-		done <- t.journaler.Snapshot(data)
+		done <- t.journaler.Snapshot(data, snapresp)
 	}()
 
 	go func() {
@@ -220,10 +222,15 @@ func (t *TaskStore) snapshot() error {
 		for _, task := range t.tasks {
 			select {
 			case data <- task:
-				// Yay, do nothing.
+				// Yay, data sent.
 			case err := <-done:
 				if err != nil {
-					log.Printf("snapshot failed: %v", err)
+					panic(fmt.Sprintf("snapshot failed: %v", err))
+				}
+				return
+			case err := <-snapresp:
+				if err != nil {
+					panic(fmt.Sprintf("snapshot failed: %v", err))
 				}
 				return
 			}
