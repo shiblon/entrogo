@@ -15,32 +15,41 @@
 package journal
 
 import (
+	"encoding/gob"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
+const (
+	journalMaxRecords = 50000
+	journalMaxAge     = time.Hour * 24
+)
+
 type DiskLog struct {
 	dir string
 
-	journalName  string
-	journalFile  *os.File
-	journalEnc   *gob.Encoder
-	journalBirth time.Time
+	journalName      string
+	journalFile      *os.File
+	journalEnc       *gob.Encoder
+	journalBirth     time.Time
+	journalRecords   int
+	lastSnapshotTime time.Time
 
 	rot  chan chan error
 	quit chan bool
-	add  chan interface{}
+	add  chan addRequest
+	snap chan snapRequest
 }
 
 type addRequest struct {
-	val  interface{}
+	rec  interface{}
 	resp chan error
 }
 
@@ -88,8 +97,15 @@ func (d *DiskLog) addRecord(rec interface{}) error {
 	if err := d.journalEnc.Encode(rec); err != nil {
 		return err
 	}
-	if err := f.journalFile.Sync(); err != nil {
+	if err := d.journalFile.Sync(); err != nil {
 		return err
+	}
+	d.journalRecords++
+	age := time.Now().Sub(d.journalBirth)
+	if age >= journalMaxAge || d.journalRecords >= journalMaxRecords {
+		if err := d.rotateLog(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -97,7 +113,7 @@ func (d *DiskLog) addRecord(rec interface{}) error {
 // birthFromName gets a timestamp from the file name (it's a prefix).
 func birthFromName(name string) (int64, error) {
 	name = filepath.Base(name)
-	pos := strings.IndexRune(name, ".")
+	pos := strings.IndexRune(name, '.')
 	if pos < 0 {
 		return -1, fmt.Errorf("weird name, can't find ID: %q", name)
 	}
@@ -108,7 +124,6 @@ func birthFromName(name string) (int64, error) {
 // a snapshot file. It always triggers a log rotation, so that any other data
 // that comes in (not part of the snapshot) is strictly newer.
 func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
-	lastname := d.journalName
 	lastbirth := d.journalBirth
 	if err := d.rotateLog(); err != nil {
 		return err
@@ -127,15 +142,15 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		// make sure we consume all of them to play nice with the producer.
 		defer func() {
 			num := 0
-			for _ := range elems {
+			for _ = range elems {
 				num++
 			}
 			log.Printf("consumed but did not snapshot %d elements", num)
 		}()
 
-		for _, elem := range elems {
+		for elem := range elems {
 			if err := encoder.Encode(elem); err != nil {
-				resp <- fmt.Errorf("snapshot failed to encode element %#v: #v", elem, err)
+				resp <- fmt.Errorf("snapshot failed to encode element %#v: %v", elem, err)
 				return
 			}
 		}
@@ -148,8 +163,8 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		}
 
 		// Finally, we delete all of the journal files that participated up to this point.
-		doneglob := filepath.Join(f.dir, "*.*.log")
-		workglob := filepath.Join(f.dir, "*.*.log.working")
+		doneglob := filepath.Join(d.dir, "*.*.log")
+		workglob := filepath.Join(d.dir, "*.*.log.working")
 		donenames, err := filepath.Glob(doneglob)
 		if err != nil {
 			log.Printf("finished name glob %q failed: %v", doneglob, err)
@@ -158,12 +173,12 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		if err != nil {
 			log.Printf("working name glob %q failed: %v", workglob, err)
 		}
-		names = make([]string, 0, len(donenames)+len(worknames))
+		names := make([]string, 0, len(donenames)+len(worknames))
 		names = append(names, donenames...)
 		names = append(names, worknames...)
 
 		// Mark all previous journals, finished or otherwise, as obsolete.
-		maxts := lastBirth.Unix()
+		maxts := lastbirth.Unix()
 		for _, name := range names {
 			ts, err := birthFromName(name)
 			if err != nil {
@@ -212,24 +227,6 @@ func (d *DiskLog) freezeLog() error {
 	return nil
 }
 
-// openExistingLog tries to open a log file that is already on the system for append.
-func (d *DiskLog) openExistingLog(name string) error {
-	ts, err := birthFromName(d.journalName)
-	if err != nil {
-		return err
-	}
-	birth := time.Unix(ts, 0)
-	jf, err := os.OpenFile(d.journalName, os.O_WRONLY|os.O_APPEND, 0660)
-	if err != nil {
-		return err
-	}
-	d.journalName = name
-	d.journalBirth = birth
-	d.journalFile = jf
-	d.journalEnc = gob.NewEncoder(jf)
-	return nil
-}
-
 // openNewLog creates a new log file and sets it as the current log. It does
 // not check whether another one is already open, it just abandons it without
 // closing it.
@@ -242,6 +239,7 @@ func (d *DiskLog) openNewLog() error {
 	}
 	d.journalBirth = birth
 	d.journalName = name
+	d.journalRecords = 0
 	d.journalFile = f
 	d.journalEnc = gob.NewEncoder(f)
 	return nil
@@ -294,7 +292,7 @@ func (d *DiskLog) Rotate() error {
 }
 
 func (d *DiskLog) latestFrozenSnapshot() (int64, string, error) {
-	glob := filepath.Join(d.dir, fmt.Sprintf("*.*.snapshot")
+	glob := filepath.Join(d.dir, fmt.Sprintf("*.*.snapshot"))
 	names, err := filepath.Glob(glob)
 	if err != nil {
 		return -1, "", err
@@ -302,10 +300,14 @@ func (d *DiskLog) latestFrozenSnapshot() (int64, string, error) {
 	if len(names) == 0 {
 		return -1, "", io.EOF
 	}
-	bestts := -1
+	bestts := int64(-1)
 	bestname := ""
 	for _, name := range names {
-		ts := birthFromName(name)
+		ts, err := birthFromName(name)
+		if err != nil {
+			log.Printf("can't find id in in %q: %v", name, err)
+			continue
+		}
 		if ts > bestts {
 			bestts = ts
 			bestname = name
@@ -336,7 +338,9 @@ func (d *DiskLog) SnapshotDecoder() (Decoder, error) {
 type journalNames []string
 
 func (n journalNames) Less(i, j int) bool {
-	return birthFromName(n[i]) < birthFromName(n[j])
+	bi, _ := birthFromName(n[i])
+	bj, _ := birthFromName(n[j])
+	return bi < bj
 }
 
 func (n journalNames) Swap(i, j int) {
@@ -351,8 +355,8 @@ func (n journalNames) Len() int {
 // the next item from the journals that are newer than the most recent
 // snapshot.
 func (d *DiskLog) JournalDecoder() (Decoder, error) {
-	doneglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log")
-	workglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log.working")
+	doneglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log"))
+	workglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log.working"))
 	donenames, err := filepath.Glob(doneglob)
 	if err != nil {
 		return nil, err
@@ -361,32 +365,32 @@ func (d *DiskLog) JournalDecoder() (Decoder, error) {
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(donenames) + len(worknames))
+	names := make([]string, 0, len(donenames)+len(worknames))
 	names = append(names, donenames...)
 	names = append(names, worknames...)
 
 	sort.Sort(journalNames(names))
 
-	snapbirth, snapname, err := d.latestFrozenSnapshot()
+	snapbirth, _, err := d.latestFrozenSnapshot()
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
 
-	var files []*os.File
+	var readers []io.Reader
 	for _, name := range names {
-		if birthFromName(name) <= snapbirth {
+		if b, err := birthFromName(name); err != nil || b <= snapbirth {
 			continue
 		}
 		file, err := os.Open(name)
 		if err != nil {
 			return nil, err
 		}
-		files = append(files, file)
+		readers = append(readers, file)
 	}
 
-	if len(files) == 0 {
+	if len(readers) == 0 {
 		return nil, io.EOF
 	}
 
-	return gob.NewDecoder(io.MultiReader(files...)), nil
+	return gob.NewDecoder(io.MultiReader(readers...)), nil
 }

@@ -25,7 +25,6 @@ package taskstore
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +37,9 @@ const (
 	// The maximum number of items to deplete from the cache when snapshotting
 	// is finished but the cache has items in it (during an update).
 	maxCacheDepletion = 20
+
+	// The maximum number of transactions to journal before snapshotting.
+	maxTxnsSinceSnapshot = 30000
 )
 
 // TaskStore maintains the tasks.
@@ -65,6 +67,7 @@ type TaskStore struct {
 
 	snapMutex     *sync.Mutex
 	_snapshotting bool // always access this with the mutex
+	_txnsSinceSnapshot int
 
 	// Channels for making various requests to the task store.
 	updateChan    chan request
@@ -113,7 +116,7 @@ func NewOpportunistic(journaler journal.Interface) *TaskStore {
 	ts.journalChan = make(chan []updateDiff, 1)
 	go func() {
 		for {
-			ts.journaler.AppendRecord(<-ts.journalChan)
+			ts.doAppend(<-ts.journalChan)
 		}
 	}()
 
@@ -122,6 +125,17 @@ func NewOpportunistic(journaler journal.Interface) *TaskStore {
 
 func (t *TaskStore) Journaler() journal.Interface {
 	return t.journaler
+}
+
+func (t *TaskStore) incTxns() int {
+	defer un(lock(t.snapMutex))
+	t._txnsSinceSnapshot++
+	return t._txnsSinceSnapshot
+}
+
+func (t *TaskStore) txns() int {
+	defer un(lock(t.snapMutex))
+	return t._txnsSinceSnapshot
 }
 
 func (t *TaskStore) snapshotting() bool {
@@ -212,11 +226,15 @@ func (t *TaskStore) snapshot() error {
 	snapresp := make(chan error, 1)
 
 	go func() {
-		done <- t.journaler.Snapshot(data, snapresp)
+		done <- t.journaler.StartSnapshot(data, snapresp)
 	}()
 
 	go func() {
-		defer t.setSnapshotting(false)
+		defer func(){
+			defer un(lock(t.snapMutex))
+			t._snapshotting = false
+			t._txnsSinceSnapshot = 0
+		}()
 		defer close(data)
 
 		for _, task := range t.tasks {
@@ -246,15 +264,20 @@ func (t *TaskStore) journalAppend(transaction []updateDiff) {
 		t.journalChan <- transaction
 	} else {
 		// Strict
-		t.journaler.AppendRecord(transaction)
+		t.doAppend(transaction)
 	}
+}
+
+func (t *TaskStore) doAppend(transaction []updateDiff) {
+	t.journaler.Append(transaction)
+	t.incTxns()
 }
 
 // applyTransaction applies a series of mutations to the task store.
 // Each element of the transaction contains information about the old task and
 // the new task. Deletions are represented by a new nil task.
 func (t *TaskStore) applyTransaction(transaction []updateDiff) {
-	if t.journaler.ShardFinished() {
+	if t.txns() >= maxTxnsSinceSnapshot {
 		t.snapshot()
 	}
 	t.journalAppend(transaction)

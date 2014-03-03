@@ -15,13 +15,14 @@
 /* Package journal is an implementation and interface specification for an
 * append-only journal with rotations. It contains a few simple implementations,
 * as well.
-*/
+ */
 package journal
 
 import (
 	"bytes"
 	"encoding/gob"
 	"fmt"
+	"io"
 )
 
 type Interface interface {
@@ -35,15 +36,15 @@ type Interface interface {
 	// successfully processed. Whether the current shard is full or not, this
 	// function immediately trigger a shard rotation so that subsequent calls
 	// to Append go to a new shard.
-	StartSnapshot(records <-chan interface{}, resp <-chan error) error
+	StartSnapshot(records <-chan interface{}, resp chan<- error) error
 
 	// SnapshotDecoder returns a decode function that can be called to decode
 	// the next element in the most recent snapshot.
-	SnapshotDecoder() (func(interface{}) error, error)
+	SnapshotDecoder() (Decoder, error)
 
 	// JournalDecoder returns a decode function that can be called to decode
 	// the next element in the journal stream.
-	JournalDecoder() (func(interface{}) error, error)
+	JournalDecoder() (Decoder, error)
 }
 
 type Decoder interface {
@@ -59,7 +60,7 @@ type Bytes struct {
 	buff *bytes.Buffer
 }
 
-func NewBytes() *Bytes{
+func NewBytes() *Bytes {
 	j := &Bytes{
 		buff: new(bytes.Buffer),
 	}
@@ -79,7 +80,7 @@ func (j Bytes) String() string {
 	return j.buff.String()
 }
 
-func (j *Bytes) StartSnapshot(records <-chan interface{}, snapresp <-chan error) error {
+func (j *Bytes) StartSnapshot(records <-chan interface{}, snapresp chan<- error) error {
 	go func() {
 		snapresp <- nil
 	}()
@@ -113,7 +114,7 @@ func (j Count) String() string {
 	return fmt.Sprintf("records written = %d", j)
 }
 
-func (j Count) StartSnapshot(records <-chan interface{}, snapresp <-chan error) error {
+func (j Count) StartSnapshot(records <-chan interface{}, snapresp chan<- error) error {
 	go func() {
 		num := 0
 		for _ = range records {
