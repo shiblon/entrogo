@@ -47,6 +47,8 @@ type Interface interface {
 }
 
 type Decoder interface {
+	// Decode attempts to fill the elements of the underlying value of its
+	// argument with the next item.
 	Decode(interface{}) error
 }
 
@@ -63,10 +65,6 @@ func NewBytes() *Bytes{
 	}
 	j.enc = gob.NewEncoder(j.buff)
 	return j
-}
-
-func (j Bytes) ShardFinished() bool {
-	return false
 }
 
 func (j Bytes) Append(rec interface{}) error {
@@ -86,6 +84,14 @@ func (j *Bytes) StartSnapshot(records <-chan interface{}, snapresp <-chan error)
 		snapresp <- nil
 	}()
 	return nil
+}
+
+func (j *Bytes) SnapshotDecoder() (Decoder, error) {
+	return nil, io.EOF
+}
+
+func (j *Bytes) JournalDecoder() (Decoder, error) {
+	return gob.NewDecoder(j.buff), nil
 }
 
 type Count int64
@@ -117,4 +123,12 @@ func (j Count) StartSnapshot(records <-chan interface{}, snapresp <-chan error) 
 		snapresp <- nil
 	}()
 	return nil
+}
+
+func (j Count) SnapshotDecoder() (Decoder, error) {
+	return nil, io.EOF
+}
+
+func (j Count) JournalDecoder() (Decoder, error) {
+	return nil, io.EOF
 }

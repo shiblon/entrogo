@@ -26,15 +26,6 @@ import (
 	"time"
 )
 
-/*
-
-2343246234345.<pid>.log.working
-2343246234345.<pid>.log
-2343246234345.<pid>.snapshot.working
-
-
-*/
-
 type DiskLog struct {
 	dir string
 
