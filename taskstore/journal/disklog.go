@@ -17,24 +17,31 @@ package journal
 import (
 	"io"
 	"log"
+	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
-var (
-	FileNameRE = regexp.MustCompile(`^(\w+)\.(\d+)(?:\.(\w+))?$`)
-)
+/*
 
-const (
-	LogFilePrefix = "log"
-	SnapshotFilePrefix = "snapshot"
-)
+2343246234345.<pid>.log.working
+2343246234345.<pid>.log
+2343246234345.<pid>.snapshot.working
+
+
+*/
 
 type DiskLog struct {
 	dir string
-	log *logFile
+
+	journalName  string
+	journalFile  *os.File
+	journalEnc   *gob.Encoder
+	journalBirth time.Time
 
 	rot  chan chan error
 	quit chan bool
@@ -42,17 +49,18 @@ type DiskLog struct {
 }
 
 type addRequest struct {
-	val interface{}
+	val  interface{}
 	resp chan error
 }
 
 type snapRequest struct {
-	elems <-chan interface{}
+	elems    <-chan interface{}
 	snapresp chan<- error
-	resp chan error
+	resp     chan error
 }
 
 func NewDiskLog(dir string) *DiskLog {
+	// TODO(chris): find a way to ensure this is a singleton for the given directory.
 	d := &DiskLog{
 		dir:  dir,
 		add:  make(chan addRequest, 1),
@@ -60,11 +68,18 @@ func NewDiskLog(dir string) *DiskLog {
 		snap: make(chan snapRequest, 1),
 		quit: make(chan bool, 1),
 	}
+
+	// We *always* open a new log, even if there was one open when we last terminated.
+	// This allows us to ignore any corrupt records at the end of the old one
+	// without doing anything complicated to find out where they are, etc. Just
+	// open a new log and have done with it. It's simpler and safer.
+	d.openNewLog()
+
 	go func() {
 		for {
 			select {
 			case req := <-d.add:
-				req.resp <- d.log.Add(req.rec)
+				req.resp <- d.addRecord(req.rec)
 			case resp := <-d.rot:
 				resp <- d.rotateLog()
 			case req := <-d.snap:
@@ -77,32 +92,57 @@ func NewDiskLog(dir string) *DiskLog {
 	return d
 }
 
+// addRecord attempts to append the record to the end of the file, using gob encoding.
+func (d *DiskLog) addRecord(rec interface{}) error {
+	if err := d.journalEnc.Encode(rec); err != nil {
+		return err
+	}
+	if err := f.journalFile.Sync(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// birthFromName gets a timestamp from the file name (it's a prefix).
+func birthFromName(name string) (int64, error) {
+	name = filepath.Base(name)
+	pos := strings.IndexRune(name, ".")
+	if pos < 0 {
+		return -1, fmt.Errorf("weird name, can't find ID: %q", name)
+	}
+	return strconv.ParseInt(name[:pos], 10, 64)
+}
+
+// snapshot attempts to get data elements from the caller and write them all to
+// a snapshot file. It always triggers a log rotation, so that any other data
+// that comes in (not part of the snapshot) is strictly newer.
 func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
-	lastname := d.log.Name()
-	lastid := d.log.ID()
+	lastname := d.journalName
+	lastbirth := d.journalBirth
 	if err := d.rotateLog(); err != nil {
 		return err
 	}
 	// Once the rotation is complete, we try to create a file (still
 	// synchronous) and then kick off an asynchronous snapshot process.
-	snapname := makeName(d.dir, SnapshotFilePrefix, lastid, "inprogress")
-	donename := makeName(d.dir, SnapshotFilePrefix, lastid, "done")
+	snapname := filepath.Join(d.dir, fmt.Sprintf("%d.%d.snapshot.working", lastbirth.Unix(), os.Getpid()))
+	donename := strings.TrimSuffix(snapname, ".working")
 	file, err := os.Create(snapname)
 	if err != nil {
 		return err
 	}
-	encoder := gob.Encoder(file)
+	encoder := gob.NewEncoder(file)
 	go func() {
 		defer file.Close()
+		// make sure we consume all of them to play nice with the producer.
 		defer func() {
 			num := 0
 			for _ := range elems {
 				num++
 			}
 			log.Printf("consumed but did not snapshot %d elements", num)
-		}() // make sure we consume all of them.
+		}()
 
-		for elem := range elems {
+		for _, elem := range elems {
 			if err := encoder.Encode(elem); err != nil {
 				resp <- fmt.Errorf("snapshot failed to encode element %#v: #v", elem, err)
 				return
@@ -117,28 +157,41 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		}
 
 		// Finally, we delete all of the journal files that participated up to this point.
-		doneglob := filepath.Join(f.dir, "*")
-		names, err := filepath.Glob(doneglob)
+		doneglob := filepath.Join(f.dir, "*.*.log")
+		workglob := filepath.Join(f.dir, "*.*.log.working")
+		donenames, err := filepath.Glob(doneglob)
 		if err != nil {
-			resp <- fmt.Errorf("snapshot failed to match files with %q: %v", doneglob, err)
-			return
+			log.Printf("finished name glob %q failed: %v", doneglob, err)
 		}
+		worknames, err := filepath.Glob(workglob)
+		if err != nil {
+			log.Printf("working name glob %q failed: %v", workglob, err)
+		}
+		names = make([]string, 0, len(donenames)+len(worknames))
+		names = append(names, donenames...)
+		names = append(names, worknames...)
+
 		// Mark all previous journals, finished or otherwise, as obsolete.
-		for name := range names {
-			_, prefix, birth, suffix, err := parseName(name)
-			// Non-matching files are ignored.
+		maxts := lastBirth.Unix()
+		for _, name := range names {
+			ts, err := birthFromName(name)
 			if err != nil {
-				fmt.Printf("weird file name %q found - ignoring: %v\n", name, err)
+				log.Printf("skipping unknown name format %q: %v", name, err)
 				continue
 			}
-			// Skip non-log files and files that are newer than the snapshot.
-			if prefix != LogFilePrefix || birth.Unix() > lastid {
+			if ts > maxts {
 				continue
 			}
+
 			// Finally, rename this log file to an obsolete name so that it can be cleaned up later.
-			obsname := fmt.Sprintf("%s.obsolete", name)
-			if err := os.Rename(name, obsname) {
-				fmt.Printf("failed to rename %q to %q: %v\n", name, obsname, err)
+			var obsname string
+			if strings.HasSuffix(name, ".working") {
+				obsname = fmt.Sprintf("%s.defunct", strings.TrimSuffix(name, ".working"))
+			} else {
+				obsname = fmt.Sprintf("%s.obsolete", name)
+			}
+			if err := os.Rename(name, obsname); err != nil {
+				log.Printf("failed to rename %q to %q: %v\n", name, obsname, err)
 				continue
 			}
 		}
@@ -147,27 +200,80 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 	return nil
 }
 
-func (d *DiskLog) rotateLog() error {
-	if err := d.log.Close(); err != nil {
-		return fmt.Errorf("failed to close old log: %v", err)
+// freezeLog closes the file for the current journal, nils out the appropriate
+// members, and removes the ".working" suffix from the file name.
+func (d *DiskLog) freezeLog() error {
+	jf := d.journalFile
+	d.journalEnc = nil
+	d.journalFile = nil
+
+	if err := jf.Close(); err != nil {
+		return fmt.Errorf("failed to close log: %v", err)
 	}
-	newname := fmt.Sprintf("%s.done", d.log.Name())
-	if err := os.Rename(d.log.Name(), newname); err != nil {
-		return fmt.Errorf("failed to rename %s to %s: %v", d.log.Name(), newname, err)
+
+	if !strings.HasSuffix(d.journalName, ".working") {
+		return fmt.Errorf("trying to freeze an already-frozen log: %s", d.journalName)
 	}
-	log, err := NewLogFile(d.dir)
-	if err != nil {
-		return fmt.Errorf("failed to create log file: %v", err)
+	if err := os.Rename(d.journalName, strings.TrimSuffix(d.journalName, ".working")); err != nil {
+		return fmt.Errorf("failed to freeze %s by rename: %v", d.journalName, err)
 	}
-	f.log = log
+
 	return nil
 }
 
+// openExistingLog tries to open a log file that is already on the system for append.
+func (d *DiskLog) openExistingLog(name string) error {
+	ts, err := birthFromName(d.journalName)
+	if err != nil {
+		return err
+	}
+	birth := time.Unix(ts, 0)
+	jf, err := os.OpenFile(d.journalName, os.O_WRONLY|os.O_APPEND, 0660)
+	if err != nil {
+		return err
+	}
+	d.journalName = name
+	d.journalBirth = birth
+	d.journalFile = jf
+	d.journalEnc = gob.NewEncoder(jf)
+	return nil
+}
+
+// openNewLog creates a new log file and sets it as the current log. It does
+// not check whether another one is already open, it just abandons it without
+// closing it.
+func (d *DiskLog) openNewLog() error {
+	birth := time.Now()
+	name := filepath.Join(d.dir, fmt.Sprintf("%d.%d.log.working", birth.Unix(), os.Getpid()))
+	f, err := os.OpenFile(d.journalName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0660)
+	if err != nil {
+		return err
+	}
+	d.journalBirth = birth
+	d.journalName = name
+	d.journalFile = f
+	d.journalEnc = gob.NewEncoder(f)
+	return nil
+}
+
+// rotateLog closes and freezes the current log and opens a new one.
+func (d *DiskLog) rotateLog() error {
+	if err := d.freezeLog(); err != nil {
+		return err
+	}
+	if err := d.openNewLog(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// Dir returns the file system directory for this journal.
 func (d *DiskLog) Dir() string {
 	return d.dir
 }
 
-func (d *DiskLog) AppendRecord(rec interface{}) error {
+// Append adds a record to the end of the journal.
+func (d *DiskLog) Append(rec interface{}) error {
 	resp := make(chan error, 1)
 	d.add <- addRequest{
 		rec,
@@ -176,10 +282,10 @@ func (d *DiskLog) AppendRecord(rec interface{}) error {
 	return <-resp
 }
 
-// Snapshot triggers an immediate rotation, then consumes all of the elements
-// on the channel and serializing them to a snapshot file with the same ID as
-// the recently-closed log.
-func (d *DiskLog) Snapshot(elems <-chan interface{}, snapresp chan<- error) error {
+// StartSnapshot triggers an immediate rotation, then consumes all of the
+// elements on the channel and serializing them to a snapshot file with the
+// same ID as the recently-closed log.
+func (d *DiskLog) StartSnapshot(elems <-chan interface{}, snapresp chan<- error) error {
 	resp := make(chan error, 1)
 	d.snap <- snapRequest{
 		elems,
@@ -196,119 +302,100 @@ func (d *DiskLog) Rotate() error {
 	return <-resp
 }
 
-func makeName(dir, prefix string, birth time.Time, suffix string) string {
-	name := fmt.Sprintf("%s.%d", prefix, birth.Unix())
-	if suffix != "" {
-		name = fmt.Sprintf("%s.%s", name, suffix)
-	}
-	return filepath.Join(dir, name)
-}
-
-func parseName(name string) (dir, prefix string, birth time.Time, suffix string, err error) {
-	base := filepath.Base(name)
-	if base == "" {
-		err = fmt.Errorf("invalid file name: %s", base)
-		return
-	}
-	parts := FileNameRE.FindStringSubmatch(base)
-	if parts == nil {
-		err = fmt.Errorf("Cannot parse %q into a usable name", base)
-		return
-	}
-	num, err := strconv.ParseInt(parts[2], 10, 64)
+func (d *DiskLog) latestFrozenSnapshot() (int64, string, error) {
+	glob := filepath.Join(d.dir, fmt.Sprintf("*.*.snapshot")
+	names, err := filepath.Glob(glob)
 	if err != nil {
-		err = fmt.Errorf("Invalid file id in %q: %s", base, parts[2])
-		return
+		return -1, "", err
 	}
-	return filepath.Dir(name), parts[1], time.Unix(num, 0), parts[3], nil
+	if len(names) == 0 {
+		return -1, "", io.EOF
+	}
+	bestts := -1
+	bestname := ""
+	for _, name := range names {
+		ts := birthFromName(name)
+		if ts > bestts {
+			bestts = ts
+			bestname = name
+		}
+	}
+	if bestts < 0 {
+		return -1, "", io.EOF
+	}
+	return bestts, bestname, nil
 }
 
-
-type LogFile struct {
-	dir string
-	birth  time.Time
-
-	file    *os.File
-	encoder *gob.Encoder
-}
-
-func NewLogFile(dir string) (*LogFile, error) {
-	f := &LogFile{
-		dir: dir,
-		birth: time.Now(),
-	}
-	var err error
-	f.file, err = os.Create(f.Name())
+// SnapshotDecoder returns a decoder whose Decode function can be called to get
+// the next item from the most recent frozen snapshot.
+func (d *DiskLog) SnapshotDecoder() (Decoder, error) {
+	_, snapname, err := d.latestFrozenSnapshot()
 	if err != nil {
 		return nil, err
 	}
-	f.encoder = gob.NewEncoder(f.file)
-	return f, nil
-}
 
-func NewLogFileName(path string) (*LogFile, error) {
-	dir, prefix, birth, suffix, err := parseName(name)
+	// Found it - try to open it for reading.
+	file, err := os.Open(snapname)
 	if err != nil {
 		return nil, err
 	}
-	if prefix != LogFilePrefix {
-		return nil, fmt.Errorf("invalid log file prefix %q", prefix)
-	}
-	if suffix != "" {
-		return nil, fmt.Errorf("can't open finished logfile %s", path)
-	}
-	f := &LogFile{
-		dir: dir,
-		birth: birth,
-	}
-	// No suffix - we can write to this.
-	file, err := os.OpenFile(f.Name(), os.O_APPEND | os.O_CREATE | os.O_SYNC, 0660)
+	return gob.NewDecoder(file), nil
+}
+
+type journalNames []string
+
+func (n journalNames) Less(i, j int) bool {
+	return birthFromName(n[i]) < birthFromName(n[j])
+}
+
+func (n journalNames) Swap(i, j int) {
+	n[i], n[j] = n[j], n[i]
+}
+
+func (n journalNames) Len() int {
+	return len(n)
+}
+
+// JournalDecoder returns a Decoder whose Decode function can be called to get
+// the next item from the journals that are newer than the most recent
+// snapshot.
+func (d *DiskLog) JournalDecoder() (Decoder, error) {
+	doneglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log")
+	workglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log.working")
+	donenames, err := filepath.Glob(doneglob)
 	if err != nil {
 		return nil, err
 	}
-	f.file = file
-	f.encoder = gob.NewEncoder(f.file)
-	return f
-}
-
-func (f *LogFile) ID() int64 {
-	return birth.Unix()
-}
-
-func (f *LogFile) Name() string {
-	return makeName(f.dir, LogFilePrefix, f.birth)
-}
-
-func (f *LogFile) Prefix() string {
-	return f.prefix
-}
-
-func (f *logfile) Age() time.Duration {
-	return f.age
-}
-
-func (f *logFile) Size() int64 {
-	info, err := f.file.Stat()
+	worknames, err := filepath.Glob(workglob)
 	if err != nil {
-		return -1
+		return nil, err
 	}
-	return info.Size()
-}
+	names := make([]string, 0, len(donenames) + len(worknames))
+	names = append(names, donenames...)
+	names = append(names, worknames...)
 
-func (f *logFile) Close() error {
-	err := f.file.Close()
-	f.file = nil
-	f.encoder = nil
+	sort.Sort(journalNames(names))
 
-	return f.file.Close()
-}
-
-func (f *logFile) Add(rec interface{}) error {
-	if err := f.encoder.Encode(rec); err != nil {
-		return err
+	snapbirth, snapname, err := d.latestFrozenSnapshot()
+	if err != nil && err != io.EOF {
+		return nil, err
 	}
-	if err := f.file.Sync(); err != nil {
-		return err
+
+	var files []*os.File
+	for _, name := range names {
+		if birthFromName(name) <= snapbirth {
+			continue
+		}
+		file, err := os.Open(name)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, file)
 	}
-	return nil
+
+	if len(files) == 0 {
+		return nil, io.EOF
+	}
+
+	return gob.NewDecoder(io.MultiReader(files...)), nil
 }

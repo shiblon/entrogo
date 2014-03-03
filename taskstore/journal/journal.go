@@ -25,23 +25,32 @@ import (
 )
 
 type Interface interface {
-	// ShardFinished is expected to return true precisely when the next journal
-	// write will trigger a rotation, i.e., the current shard will be closed and
-	// made immutable, and a new shard will be started on the next write.
-	ShardFinished() bool
-
-	// AppendRecord appends a serialized version of the interface to the
+	// Append appends a serialized version of the interface to the
 	// current journal shard.
-	AppendRecord(interface{}) error
+	Append(interface{}) error
 
-	// Snapshot is given a data channel from which it is expected to consume
-	// all values until closed. If it terminates early, it sends a non-nil
-	// error back. When complete with no errors, the snapshot has been
+	// StartSnapshot is given a data channel from which it is expected to
+	// consume all values until closed. If it terminates early, it sends a
+	// non-nil error back. When complete with no errors, the snapshot has been
 	// successfully processed. Whether the current shard is full or not, this
-	// function should immediately trigger a shard rotation so that subsequent
-	// calls to AppendRecord go to a new shard.
-	Snapshot(records <-chan interface{}, resp <-chan error) error
+	// function immediately trigger a shard rotation so that subsequent calls
+	// to Append go to a new shard.
+	StartSnapshot(records <-chan interface{}, resp <-chan error) error
+
+	// SnapshotDecoder returns a decode function that can be called to decode
+	// the next element in the most recent snapshot.
+	SnapshotDecoder() (func(interface{}) error, error)
+
+	// JournalDecoder returns a decode function that can be called to decode
+	// the next element in the journal stream.
+	JournalDecoder() (func(interface{}) error, error)
 }
+
+type Decoder interface {
+	Decode(interface{}) error
+}
+
+// TODO(chris): add the Decoder stuff to the implementations below.
 
 type Bytes struct {
 	enc  *gob.Encoder
@@ -60,7 +69,7 @@ func (j Bytes) ShardFinished() bool {
 	return false
 }
 
-func (j Bytes) AppendRecord(rec interface{}) error {
+func (j Bytes) Append(rec interface{}) error {
 	return j.enc.Encode(rec)
 }
 
@@ -72,7 +81,7 @@ func (j Bytes) String() string {
 	return j.buff.String()
 }
 
-func (j *Bytes) Snapshot(records <-chan interface{}, snapresp <-chan error) error {
+func (j *Bytes) StartSnapshot(records <-chan interface{}, snapresp <-chan error) error {
 	go func() {
 		snapresp <- nil
 	}()
@@ -89,7 +98,7 @@ func (j Count) ShardFinished() bool {
 	return false
 }
 
-func (j *Count) AppendRecord(_ interface{}) error {
+func (j *Count) Append(_ interface{}) error {
 	*j++
 	return nil
 }
@@ -98,7 +107,7 @@ func (j Count) String() string {
 	return fmt.Sprintf("records written = %d", j)
 }
 
-func (j Count) Snapshot(records <-chan interface{}, snapresp <-chan error) error {
+func (j Count) StartSnapshot(records <-chan interface{}, snapresp <-chan error) error {
 	go func() {
 		num := 0
 		for _ = range records {
