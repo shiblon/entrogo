@@ -25,6 +25,8 @@ package taskstore
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -65,8 +67,8 @@ type TaskStore struct {
 	// channel.
 	journalChan chan []updateDiff
 
-	snapMutex     *sync.Mutex
-	_snapshotting bool // always access this with the mutex
+	snapMutex          *sync.Mutex
+	_snapshotting      bool // always access this with the mutex
 	_txnsSinceSnapshot int
 
 	// Channels for making various requests to the task store.
@@ -85,6 +87,20 @@ type TaskStore struct {
 // to stay committed under all circumstances. In particular, if task execution
 // is not idempotent, this is the right one to use.
 func NewStrict(journaler journal.Interface) *TaskStore {
+	return newTaskStoreHelper(journaler, false)
+}
+
+// NewOpportunistic returns a new TaskStore instance.
+// This store will be opportunistically journaled, meaning that it is possible
+// to update, delete, or create a task, get confirmation of it occurring,
+// crash, and find that recently committed tasks are lost.
+// If task execution is idempotent, this is safe, and is much faster, as it
+// writes to disk when it gets a chance.
+func NewOpportunistic(journaler journal.Interface) *TaskStore {
+	return newTaskStoreHelper(journaler, true)
+}
+
+func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskStore {
 	ts := &TaskStore{
 		journaler: journaler,
 
@@ -100,26 +116,67 @@ func NewStrict(journaler journal.Interface) *TaskStore {
 		groupsChan:    make(chan request),
 		snapshotChan:  make(chan request),
 	}
-	// Handle requests for updates and reads.
-	go ts.handle()
-	return ts
-}
 
-// NewOpportunistic returns a new TaskStore instance.
-// This store will be opportunistically journaled, meaning that it is possible
-// to update, delete, or create a task, get confirmation of it occurring,
-// crash, and find that recently committed tasks are lost.
-// If task execution is idempotent, this is safe, and is much faster, as it
-// writes to disk when it gets a chance.
-func NewOpportunistic(journaler journal.Interface) *TaskStore {
-	ts := NewStrict(journaler)
-	ts.journalChan = make(chan []updateDiff, 1)
-	go func() {
-		for {
-			ts.doAppend(<-ts.journalChan)
+	var err error
+
+	// Before starting our handler and allowing requests to come in, try
+	// reading the latest snapshot and journals.
+	sdec, err := journaler.SnapshotDecoder()
+	if err != nil && err != io.EOF {
+		panic(fmt.Sprintf("snapshot error: %v", err))
+	}
+	log.Println(sdec)
+	jdec, err := journaler.JournalDecoder()
+	if err != nil && err != io.EOF {
+		panic(fmt.Sprintf("journal error: %v", err))
+	}
+
+	// Read the snapshot.
+	task := new(Task)
+	err = sdec.Decode(task)
+	for err != io.EOF {
+		if _, ok := ts.tasks[task.ID]; ok {
+			panic(fmt.Sprintf("can't happen - two tasks with same ID %d in snapshot", task.ID))
 		}
-	}()
+		ts.tasks[task.ID] = task
+		if ts.lastTaskID < task.ID {
+			ts.lastTaskID = task.ID
+		}
+		if _, ok := ts.heaps[task.Group]; !ok {
+			ts.heaps[task.Group] = keyheap.New()
+		}
+		ts.heaps[task.Group].Push(task)
 
+		// Get ready for a new round.
+		task = new(Task)
+		err = sdec.Decode(task)
+	}
+
+	// Replay the journals.
+	transaction := new([]updateDiff)
+	err = jdec.Decode(transaction)
+	for err != io.EOF {
+		// Replay this transaction - not busy snapshotting.
+		ts.playTransaction(*transaction, false)
+
+		// Next record
+		transaction = new([]updateDiff)
+		err = jdec.Decode(transaction)
+	}
+
+	// Everything is loaded from disk, now we can start our request handling loop.
+
+	// Handle requests for updates and reads.
+	if opportunistic {
+		// non-nil journalChan means "append opportunistically"
+		ts.journalChan = make(chan []updateDiff, 1)
+		go func() {
+			for {
+				ts.doAppend(<-ts.journalChan)
+			}
+		}()
+	}
+	go ts.handle()
 	return ts
 }
 
@@ -230,7 +287,7 @@ func (t *TaskStore) snapshot() error {
 	}()
 
 	go func() {
-		defer func(){
+		defer func() {
 			defer un(lock(t.snapMutex))
 			t._snapshotting = false
 			t._txnsSinceSnapshot = 0
@@ -296,16 +353,19 @@ func (t *TaskStore) applyTransaction(transaction []updateDiff) {
 	// 		because we are only mutating temporary cache structures when
 	// 		snapshotting is true, and these are always safe to modify
 	// 		regardless of the status of snapshotting (they don't participate).
-	readonly := t.snapshotting()
-	for _, diff := range transaction {
-		t.applySingleDiff(diff, readonly)
-	}
+	t.playTransaction(transaction, t.snapshotting())
 
 	// Finally, if we are not snapshotting, we can try to move some things out
 	// of the cache into the main data section. On the off chance that
 	// snapshotting finished by now, we check it again.
 	if !t.snapshotting() {
 		t.partialDepleteCache(maxCacheDepletion)
+	}
+}
+
+func (t *TaskStore) playTransaction(tx []updateDiff, ro bool) {
+	for _, diff := range tx {
+		t.applySingleDiff(diff, ro)
 	}
 }
 

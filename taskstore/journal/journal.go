@@ -53,6 +53,15 @@ type Decoder interface {
 	Decode(interface{}) error
 }
 
+// EmptyDecoder can be returned when there is nothing to decode, but it is safe
+// to proceed.
+type EmptyDecoder struct {}
+
+// Decode with no elements - default behavior.
+func (ed EmptyDecoder) Decode(interface{}) error {
+	return io.EOF
+}
+
 // TODO(chris): add the Decoder stuff to the implementations below.
 
 type Bytes struct {
@@ -88,7 +97,7 @@ func (j *Bytes) StartSnapshot(records <-chan interface{}, snapresp chan<- error)
 }
 
 func (j *Bytes) SnapshotDecoder() (Decoder, error) {
-	return nil, io.EOF
+	return EmptyDecoder{}, nil
 }
 
 func (j *Bytes) JournalDecoder() (Decoder, error) {
@@ -127,9 +136,9 @@ func (j Count) StartSnapshot(records <-chan interface{}, snapresp chan<- error) 
 }
 
 func (j Count) SnapshotDecoder() (Decoder, error) {
-	return nil, io.EOF
+	return EmptyDecoder{}, nil
 }
 
 func (j Count) JournalDecoder() (Decoder, error) {
-	return nil, io.EOF
+	return EmptyDecoder{}, nil
 }

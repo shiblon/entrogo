@@ -323,8 +323,12 @@ func (d *DiskLog) latestFrozenSnapshot() (int64, string, error) {
 // the next item from the most recent frozen snapshot.
 func (d *DiskLog) SnapshotDecoder() (Decoder, error) {
 	_, snapname, err := d.latestFrozenSnapshot()
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return nil, err
+	}
+	// Default empty implementation for the case where there just isn't a file.
+	if err == io.EOF {
+		return EmptyDecoder{}, nil
 	}
 
 	// Found it - try to open it for reading.
@@ -358,9 +362,14 @@ func (d *DiskLog) JournalDecoder() (Decoder, error) {
 	doneglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log"))
 	workglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log.working"))
 	donenames, err := filepath.Glob(doneglob)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return nil, err
 	}
+	// Default empty implementation for the case where there just isn't a file.
+	if err == io.EOF {
+		return EmptyDecoder{}, nil
+	}
+
 	worknames, err := filepath.Glob(workglob)
 	if err != nil {
 		return nil, err
