@@ -295,24 +295,11 @@ func (t *TaskStore) doAppend(transaction []updateDiff) {
 // the new task. Deletions are represented by a new nil task.
 func (t *TaskStore) applyTransaction(transaction []updateDiff) {
 	t.journalAppend(transaction)
-
-	// Make sure that all records in the transaction see the same value for snapshotting.
-	// This is safe (just protecting variable access, not the whole process)
-	// because there are only two cases:
-	// 1) snapshotting = false
-	// 		This is safe because the only way for snapshotting to become true
-	// 		is in snapshot, called above in this function. Thus, its value
-	// 		is fixed here. Note that we assume a single-threaded model in the
-	// 		entire execution of this taskstore.
-	// 2) snapshotting = true
-	// 		In this case, snapshotting can become false during the execution of
-	// 		the code below because it might finish before we do. This is safe
-	// 		because we are only mutating temporary cache structures when
-	// 		snapshotting is true, and these are always safe to modify
-	// 		regardless of the status of snapshotting (they don't participate).
 	t.playTransaction(transaction, t.snapshotting)
 }
 
+// playTransaction applies the diff (a series of mutations that should happen
+// together) to the in-memory database. It does not journal.
 func (t *TaskStore) playTransaction(tx []updateDiff, ro bool) {
 	for _, diff := range tx {
 		t.applySingleDiff(diff, ro)
@@ -747,9 +734,7 @@ func (t *TaskStore) handle() {
 			t.partialDepleteCache(maxCacheDepletion)
 		case transaction := <-t.journalChan:
 			// Opportunistic journaling.
-			// Note that this might be the wrong way to go about things; it
-			// might cause journal entries to pile up that would otherwise work
-			// fine in their own go routine.
+			// TODO: will journaling fall behind due to starvation in here? Should opportunistic be asynchronous?
 			t.doAppend(transaction)
 		}
 	}
