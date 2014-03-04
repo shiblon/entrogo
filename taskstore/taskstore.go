@@ -28,7 +28,6 @@ import (
 	"io"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"code.google.com/p/entrogo/keyheap"
@@ -67,17 +66,16 @@ type TaskStore struct {
 	// channel.
 	journalChan chan []updateDiff
 
-	// always access these with the mutex
-	snapMutex          *sync.Mutex
-	_snapshotting      bool
-	_txnsSinceSnapshot int
+	snapshotting      bool
+	txnsSinceSnapshot int
 
 	// Channels for making various requests to the task store.
-	updateChan    chan request
-	listGroupChan chan request
-	claimChan     chan request
-	groupsChan    chan request
-	snapshotChan  chan request
+	updateChan       chan request
+	listGroupChan    chan request
+	claimChan        chan request
+	groupsChan       chan request
+	snapshotChan     chan request
+	snapshotDoneChan chan error
 }
 
 // NewStrict returns a TaskStore with journaling done synchronously
@@ -105,17 +103,17 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 	ts := &TaskStore{
 		journaler: journaler,
 
-		heaps:     make(map[string]*keyheap.KeyHeap),
-		tasks:     make(map[int64]*Task),
-		tmpTasks:  make(map[int64]*Task),
-		delTasks:  make(map[int64]bool),
-		snapMutex: new(sync.Mutex),
+		heaps:    make(map[string]*keyheap.KeyHeap),
+		tasks:    make(map[int64]*Task),
+		tmpTasks: make(map[int64]*Task),
+		delTasks: make(map[int64]bool),
 
-		updateChan:    make(chan request),
-		listGroupChan: make(chan request),
-		claimChan:     make(chan request),
-		groupsChan:    make(chan request),
-		snapshotChan:  make(chan request),
+		updateChan:       make(chan request),
+		listGroupChan:    make(chan request),
+		claimChan:        make(chan request),
+		groupsChan:       make(chan request),
+		snapshotChan:     make(chan request),
+		snapshotDoneChan: make(chan error),
 	}
 
 	var err error
@@ -167,15 +165,10 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 
 	// Everything is loaded from disk, now we can start our request handling loop.
 
-	// Handle requests for updates and reads.
 	if opportunistic {
-		// non-nil journalChan means "append opportunistically"
+		// non-nil journalChan means "append opportunistically" and frees up
+		// the journalChan case in "handle".
 		ts.journalChan = make(chan []updateDiff, 1)
-		go func() {
-			for {
-				ts.doAppend(<-ts.journalChan)
-			}
-		}()
 	}
 	go ts.handle()
 	return ts
@@ -185,29 +178,6 @@ func (t *TaskStore) Journaler() journal.Interface {
 	return t.journaler
 }
 
-func (t *TaskStore) incTxns() int {
-	defer un(lock(t.snapMutex))
-	t._txnsSinceSnapshot++
-	return t._txnsSinceSnapshot
-}
-
-func (t *TaskStore) txns() int {
-	defer un(lock(t.snapMutex))
-	return t._txnsSinceSnapshot
-}
-
-func (t *TaskStore) snapshotting() bool {
-	defer un(lock(t.snapMutex))
-	return t._snapshotting
-}
-
-func (t *TaskStore) setSnapshotting(val bool) bool {
-	defer un(lock(t.snapMutex))
-	old := t._snapshotting
-	t._snapshotting = val
-	return old
-}
-
 // String formats this as a string. Shows minimal information like group names.
 func (t *TaskStore) String() string {
 	strs := []string{"TaskStore:", "  groups:"}
@@ -215,7 +185,7 @@ func (t *TaskStore) String() string {
 		strs = append(strs, fmt.Sprintf("    %q", name))
 	}
 	strs = append(strs,
-		fmt.Sprintf("  snapshotting: %v", t.snapshotting()),
+		fmt.Sprintf("  snapshotting: %v", t.snapshotting),
 		fmt.Sprintf("  num tasks: %d", len(t.tasks)+len(t.tmpTasks)-len(t.delTasks)),
 		fmt.Sprintf("  last task id: %d", t.lastTaskID))
 	return strings.Join(strs, "\n")
@@ -274,11 +244,6 @@ func (t *TaskStore) nextID() int64 {
 
 // snapshot takes care of using the journaler to create a snapshot.
 func (t *TaskStore) snapshot() error {
-	wasSnapshotting := t.setSnapshotting(true)
-	if wasSnapshotting {
-		return fmt.Errorf("attempted snapshot while already in progress")
-	}
-
 	data := make(chan interface{}, 1)
 	done := make(chan error, 1)
 	snapresp := make(chan error, 1)
@@ -288,10 +253,10 @@ func (t *TaskStore) snapshot() error {
 	}()
 
 	go func() {
+		var err error
 		defer func() {
-			defer un(lock(t.snapMutex))
-			t._snapshotting = false
-			t._txnsSinceSnapshot = 0
+			// Notify completion of this asynchronous snapshot.
+			t.snapshotDoneChan <- err
 		}()
 		defer close(data)
 
@@ -299,16 +264,10 @@ func (t *TaskStore) snapshot() error {
 			select {
 			case data <- task:
 				// Yay, data sent.
-			case err := <-done:
-				if err != nil {
-					panic(fmt.Sprintf("snapshot failed: %v", err))
-				}
-				return
-			case err := <-snapresp:
-				if err != nil {
-					panic(fmt.Sprintf("snapshot failed: %v", err))
-				}
-				return
+			case err = <-done:
+				return // errors are sent out in defer
+			case err = <-snapresp:
+				return // errors are sent out in defer
 			}
 		}
 	}()
@@ -328,16 +287,13 @@ func (t *TaskStore) journalAppend(transaction []updateDiff) {
 
 func (t *TaskStore) doAppend(transaction []updateDiff) {
 	t.journaler.Append(transaction)
-	t.incTxns()
+	t.txnsSinceSnapshot++
 }
 
 // applyTransaction applies a series of mutations to the task store.
 // Each element of the transaction contains information about the old task and
 // the new task. Deletions are represented by a new nil task.
 func (t *TaskStore) applyTransaction(transaction []updateDiff) {
-	if t.txns() >= maxTxnsSinceSnapshot {
-		t.snapshot()
-	}
 	t.journalAppend(transaction)
 
 	// Make sure that all records in the transaction see the same value for snapshotting.
@@ -354,14 +310,7 @@ func (t *TaskStore) applyTransaction(transaction []updateDiff) {
 	// 		because we are only mutating temporary cache structures when
 	// 		snapshotting is true, and these are always safe to modify
 	// 		regardless of the status of snapshotting (they don't participate).
-	t.playTransaction(transaction, t.snapshotting())
-
-	// Finally, if we are not snapshotting, we can try to move some things out
-	// of the cache into the main data section. On the off chance that
-	// snapshotting finished by now, we check it again.
-	if !t.snapshotting() {
-		t.partialDepleteCache(maxCacheDepletion)
-	}
+	t.playTransaction(transaction, t.snapshotting)
 }
 
 func (t *TaskStore) playTransaction(tx []updateDiff, ro bool) {
@@ -754,6 +703,19 @@ func (t *TaskStore) handle() {
 		select {
 		case req := <-t.updateChan:
 			tasks, err := t.update(req.Val.(reqUpdate))
+			if err == nil {
+				// Successful txn: is it time to create a full snapshot?
+				if t.txnsSinceSnapshot >= maxTxnsSinceSnapshot {
+					t.snapshot()
+				}
+
+				// Finally, if we are not snapshotting, we can try to move some things out
+				// of the cache into the main data section. On the off chance that
+				// snapshotting finished by now, we check it again.
+				if !t.snapshotting {
+					t.partialDepleteCache(maxCacheDepletion)
+				}
+			}
 			req.ResultChan <- response{tasks, err}
 		case req := <-t.listGroupChan:
 			tasks, err := t.listGroup(req.Val.(reqListGroup))
@@ -765,11 +727,30 @@ func (t *TaskStore) handle() {
 			groups := t.groups()
 			req.ResultChan <- response{groups, nil}
 		case req := <-t.snapshotChan:
+			if t.snapshotting {
+				err := fmt.Errorf("attempted snapshot while already snapshotting")
+				req.ResultChan <- response{nil, err}
+				break // out of select
+			}
+			t.snapshotting = true
 			err := t.snapshot()
 			req.ResultChan <- response{nil, err}
+		case err := <-t.snapshotDoneChan:
+			if err != nil {
+				// TODO: Should this really be fatal?
+				panic(fmt.Sprintf("snapshot failed: %v", err))
+			}
+			t.snapshotting = false
+			t.txnsSinceSnapshot = 0
 		case <-idler:
 			// The idler got a chance to tick. Trigger a short depletion.
 			t.partialDepleteCache(maxCacheDepletion)
+		case transaction := <-t.journalChan:
+			// Opportunistic journaling.
+			// Note that this might be the wrong way to go about things; it
+			// might cause journal entries to pile up that would otherwise work
+			// fine in their own go routine.
+			t.doAppend(transaction)
 		}
 	}
 }
