@@ -157,22 +157,22 @@ func NewAckley(dims int, offset float64) *basicFitness {
 	D := float64(dims)
 	return newBasicFitnessSquareDomain(dims, -5.0, 5.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
 		s1, s2 := 0.0, 0.0
-		for i, p := range(pos) {
+		for i, p := range pos {
 			p -= f.Center[i]
 			s1 += p * p
 			s2 += math.Cos(p * twopi)
 		}
 		s1 /= D
 		s2 /= D
-		return - 20.0*math.Exp(-0.2*math.Sqrt(s1)) - math.Exp(s2) + 20.0 + math.E
+		return -20.0*math.Exp(-0.2*math.Sqrt(s1)) - math.Exp(s2) + 20.0 + math.E
 	})
 }
 
 func NewDeJongF4(dims int, offset float64) *basicFitness {
 	return newBasicFitnessSquareDomain(dims, -20.0, 20.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
 		s := 0.0
-		for i, x := range(pos) {
-			s += float64(i+1) * math.Pow(x - f.Center[i], 4)
+		for i, x := range pos {
+			s += float64(i+1) * math.Pow(x-f.Center[i], 4)
 		}
 		return s
 	})
@@ -182,22 +182,22 @@ func NewEasom(dims int, offset float64) *basicFitness {
 	return newBasicFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
 		sum := 0.0
 		prod := 1.0
-		for i, x := range(pos) {
+		for i, x := range pos {
 			p := x - f.Center[i]
-			sum += p*p
+			sum += p * p
 			prod *= math.Cos(math.Pi + p)
 		}
-		return 1.0 + math.Exp(-sum) * prod
+		return 1.0 + math.Exp(-sum)*prod
 	})
 }
 
 func NewSchwefel(dims int, offset float64) *basicFitness {
 	return newBasicFitnessSquareDomain(dims, -500.0, 500.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
 		sum := 0.0
-		for i, x := range(pos) {
+		for i, x := range pos {
 			p := x - f.Center[i]
 			sum += p * math.Sin(math.Sqrt(math.Abs(p)))
 		}
-		return 418.9829 * float64(f.Dims()) + sum
+		return 418.9829*float64(f.Dims()) + sum
 	})
 }

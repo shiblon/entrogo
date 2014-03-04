@@ -261,8 +261,8 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 		cogLower *= cogFactor
 	}
 
-	rand_soc := vec.NewFFilled(dims, particle.Rand().Float64).SMulBy(soc-socLower).SAddBy(socLower)
-	rand_cog := vec.NewFFilled(dims, particle.Rand().Float64).SMulBy(cog-cogLower).SAddBy(cogLower)
+	rand_soc := vec.NewFFilled(dims, particle.Rand().Float64).SMulBy(soc - socLower).SAddBy(socLower)
+	rand_cog := vec.NewFFilled(dims, particle.Rand().Float64).SMulBy(cog - cogLower).SAddBy(cogLower)
 
 	to_informer := informer.BestPos.Sub(particle.Pos).MulBy(rand_soc)
 	acc := particle.BestPos.Sub(particle.Pos).MulBy(rand_cog).AddBy(to_informer)
@@ -271,7 +271,7 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 	scratch := particle.Scratch()
 
 	dot := particle.Vel.Normalized().Dot(acc.Normalized())
-	u.printChan <- fmt.Sprintf("tug=%v", dot);
+	u.printChan <- fmt.Sprintf("tug=%v", dot)
 
 	scratch.Vel.Replace(particle.Vel).SMulBy(u.momentum(particle, dot)).AddBy(acc)
 

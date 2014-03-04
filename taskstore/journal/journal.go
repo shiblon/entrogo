@@ -55,7 +55,7 @@ type Decoder interface {
 
 // EmptyDecoder can be returned when there is nothing to decode, but it is safe
 // to proceed.
-type EmptyDecoder struct {}
+type EmptyDecoder struct{}
 
 // Decode with no elements - default behavior.
 func (ed EmptyDecoder) Decode(interface{}) error {

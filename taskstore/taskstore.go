@@ -67,8 +67,9 @@ type TaskStore struct {
 	// channel.
 	journalChan chan []updateDiff
 
+	// always access these with the mutex
 	snapMutex          *sync.Mutex
-	_snapshotting      bool // always access this with the mutex
+	_snapshotting      bool
 	_txnsSinceSnapshot int
 
 	// Channels for making various requests to the task store.
