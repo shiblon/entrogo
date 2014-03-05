@@ -26,7 +26,6 @@ package taskstore
 import (
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"time"
 
@@ -126,7 +125,6 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 	if err != nil && err != io.EOF {
 		panic(fmt.Sprintf("snapshot error: %v", err))
 	}
-	log.Println(sdec)
 	jdec, err := journaler.JournalDecoder()
 	if err != nil && err != io.EOF {
 		panic(fmt.Sprintf("journal error: %v", err))

@@ -23,15 +23,16 @@ import (
 )
 
 func ExampleTaskStore_Add() {
-	ts := NewStrict(journal.NewCount())
+	jr := journal.NewCount()
+	ts := NewStrict(jr)
 	adds := []*Task{
 		NewTask(13, "mygroup"),
 	}
 	owner := rand.Int31()
-	newtasks, err := ts.Update(owner, adds, nil, nil, nil)
+	_, err := ts.Update(owner, adds, nil, nil, nil)
 	fmt.Println(ts)
-	fmt.Println("New tasks:", newtasks, err)
-	fmt.Printf("Journal: %v", ts.Journaler())
+	fmt.Println("Err:", err)
+	fmt.Printf("Journal: %v", jr)
 
 	// Output:
 	//
@@ -41,7 +42,6 @@ func ExampleTaskStore_Add() {
 	//   snapshotting: false
 	//   num tasks: 1
 	//   last task id: 1
-	// New task ID: 1
-	// New task Owner: 13
-	// Journal: CountJournaler records written = 1
+	// Err: <nil>
+	// Journal: records written = 1
 }
