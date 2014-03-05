@@ -76,6 +76,7 @@ type TaskStore struct {
 	groupsChan       chan request
 	snapshotChan     chan request
 	snapshotDoneChan chan error
+	stringChan       chan request
 }
 
 // NewStrict returns a TaskStore with journaling done synchronously
@@ -114,6 +115,7 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 		groupsChan:       make(chan request),
 		snapshotChan:     make(chan request),
 		snapshotDoneChan: make(chan error),
+		stringChan:       make(chan request),
 	}
 
 	var err error
@@ -157,38 +159,29 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 	for err != io.EOF {
 		// Replay this transaction - not busy snapshotting.
 		ts.playTransaction(*transaction, false)
+		ts.txnsSinceSnapshot++
 
 		// Next record
 		transaction = new([]updateDiff)
 		err = jdec.Decode(transaction)
 	}
 
-	// Everything is loaded from disk, now we can start our request handling loop.
-
 	if opportunistic {
 		// non-nil journalChan means "append opportunistically" and frees up
 		// the journalChan case in "handle".
+		// TODO: is this the right buffer size?
 		ts.journalChan = make(chan []updateDiff, 1)
 	}
+
+	// Everything is ready, now we can start our request handling loop.
 	go ts.handle()
 	return ts
 }
 
-func (t *TaskStore) Journaler() journal.Interface {
-	return t.journaler
-}
-
 // String formats this as a string. Shows minimal information like group names.
 func (t *TaskStore) String() string {
-	strs := []string{"TaskStore:", "  groups:"}
-	for name := range t.heaps {
-		strs = append(strs, fmt.Sprintf("    %q", name))
-	}
-	strs = append(strs,
-		fmt.Sprintf("  snapshotting: %v", t.snapshotting),
-		fmt.Sprintf("  num tasks: %d", len(t.tasks)+len(t.tmpTasks)-len(t.delTasks)),
-		fmt.Sprintf("  last task id: %d", t.lastTaskID))
-	return strings.Join(strs, "\n")
+	resp := t.sendRequest(nil, t.stringChan)
+	return resp.Val.(string)
 }
 
 // nowMillis returns the current time in milliseconds since the UTC epoch.
@@ -693,6 +686,7 @@ func (t *TaskStore) handle() {
 			if err == nil {
 				// Successful txn: is it time to create a full snapshot?
 				if t.txnsSinceSnapshot >= maxTxnsSinceSnapshot {
+					t.txnsSinceSnapshot = 0
 					t.snapshot()
 				}
 
@@ -728,7 +722,6 @@ func (t *TaskStore) handle() {
 				panic(fmt.Sprintf("snapshot failed: %v", err))
 			}
 			t.snapshotting = false
-			t.txnsSinceSnapshot = 0
 		case <-idler:
 			// The idler got a chance to tick. Trigger a short depletion.
 			t.partialDepleteCache(maxCacheDepletion)
@@ -736,6 +729,16 @@ func (t *TaskStore) handle() {
 			// Opportunistic journaling.
 			// TODO: will journaling fall behind due to starvation in here? Should opportunistic be asynchronous?
 			t.doAppend(transaction)
+		case req := <-t.stringChan:
+			strs := []string{"TaskStore:", "  groups:"}
+			for name := range t.heaps {
+				strs = append(strs, fmt.Sprintf("    %q", name))
+			}
+			strs = append(strs,
+				fmt.Sprintf("  snapshotting: %v", t.snapshotting),
+				fmt.Sprintf("  num tasks: %d", len(t.tasks)+len(t.tmpTasks)-len(t.delTasks)),
+				fmt.Sprintf("  last task id: %d", t.lastTaskID))
+			req.ResultChan <- response{strings.Join(strs, "\n"), nil}
 		}
 	}
 }
