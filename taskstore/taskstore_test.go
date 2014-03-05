@@ -17,7 +17,6 @@ package taskstore
 
 import (
 	"fmt"
-	"math/rand"
 
 	"code.google.com/p/entrogo/taskstore/journal"
 )
@@ -26,12 +25,16 @@ func ExampleTaskStore_Add() {
 	jr := journal.NewCount()
 	ts := NewStrict(jr)
 	adds := []*Task{
-		NewTask(13, "mygroup"),
+		NewTask("mygroup"),
 	}
-	owner := rand.Int31()
-	_, err := ts.Update(owner, adds, nil, nil, nil)
+	var owner int32 = 13
+	newtasks, err := ts.Update(owner, adds, nil, nil, nil)
 	fmt.Println(ts)
 	fmt.Println("Err:", err)
+	for i, t := range newtasks {
+		fmt.Println(i, "ID:", t.ID)
+		fmt.Println(i, "Owner:", owner)
+	}
 	fmt.Printf("Journal: %v", jr)
 
 	// Output:
@@ -43,5 +46,7 @@ func ExampleTaskStore_Add() {
 	//   num tasks: 1
 	//   last task id: 1
 	// Err: <nil>
+	// 0 ID: 1
+	// 0 Owner: 13
 	// Journal: records written = 1
 }

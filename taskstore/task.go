@@ -40,9 +40,8 @@ type Task struct {
 }
 
 // NewTask creates a new task for this owner and group.
-func NewTask(owner int32, group string) *Task {
+func NewTask(group string) *Task {
 	return &Task{
-		OwnerID: owner,
 		Group:   group,
 	}
 }
