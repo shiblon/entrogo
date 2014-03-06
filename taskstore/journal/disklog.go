@@ -34,9 +34,10 @@ const (
 
 type DiskLog struct {
 	dir string
+	fs  OS
 
 	journalName      string
-	journalFile      *os.File
+	journalFile      File
 	journalEnc       *gob.Encoder
 	journalBirth     time.Time
 	journalRecords   int
@@ -60,6 +61,11 @@ type snapRequest struct {
 }
 
 func NewDiskLog(dir string) *DiskLog {
+	// Default implementation just uses standard os module
+	return NewDiskLogInjectOS(dir, OSOS{})
+}
+
+func NewDiskLogInjectOS(dir string, fs OS) *DiskLog {
 	// TODO(chris): find a way to ensure this is a singleton for the given directory.
 	d := &DiskLog{
 		dir:  dir,
@@ -67,6 +73,7 @@ func NewDiskLog(dir string) *DiskLog {
 		rot:  make(chan chan error, 1),
 		snap: make(chan snapRequest, 1),
 		quit: make(chan bool, 1),
+		fs:   fs,
 	}
 
 	// We *always* open a new log, even if there was one open when we last terminated.
@@ -132,7 +139,7 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 	// synchronous) and then kick off an asynchronous snapshot process.
 	snapname := filepath.Join(d.dir, fmt.Sprintf("%d.%d.snapshot.working", lastbirth.Unix(), os.Getpid()))
 	donename := strings.TrimSuffix(snapname, ".working")
-	file, err := os.Create(snapname)
+	file, err := d.fs.Create(snapname)
 	if err != nil {
 		return err
 	}
@@ -157,7 +164,7 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		file.Close()
 
 		// Now we indicate that the file is finished by renaming it.
-		if err := os.Rename(snapname, donename); err != nil {
+		if err := d.fs.Rename(snapname, donename); err != nil {
 			resp <- fmt.Errorf("snapshot incomplete, failed to rename %q to %q: %v", snapname, donename, err)
 			return
 		}
@@ -196,7 +203,7 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 			} else {
 				obsname = fmt.Sprintf("%s.obsolete", name)
 			}
-			if err := os.Rename(name, obsname); err != nil {
+			if err := d.fs.Rename(name, obsname); err != nil {
 				log.Printf("failed to rename %q to %q: %v\n", name, obsname, err)
 				continue
 			}
@@ -220,7 +227,7 @@ func (d *DiskLog) freezeLog() error {
 	if !strings.HasSuffix(d.journalName, ".working") {
 		return fmt.Errorf("trying to freeze an already-frozen log: %s", d.journalName)
 	}
-	if err := os.Rename(d.journalName, strings.TrimSuffix(d.journalName, ".working")); err != nil {
+	if err := d.fs.Rename(d.journalName, strings.TrimSuffix(d.journalName, ".working")); err != nil {
 		return fmt.Errorf("failed to freeze %s by rename: %v", d.journalName, err)
 	}
 
@@ -233,7 +240,7 @@ func (d *DiskLog) freezeLog() error {
 func (d *DiskLog) openNewLog() error {
 	birth := time.Now()
 	name := filepath.Join(d.dir, fmt.Sprintf("%d.%d.log.working", birth.Unix(), os.Getpid()))
-	f, err := os.OpenFile(d.journalName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0660)
+	f, err := d.fs.Create(name)
 	if err != nil {
 		return err
 	}
@@ -332,7 +339,7 @@ func (d *DiskLog) SnapshotDecoder() (Decoder, error) {
 	}
 
 	// Found it - try to open it for reading.
-	file, err := os.Open(snapname)
+	file, err := d.fs.Open(snapname)
 	if err != nil {
 		return nil, err
 	}
@@ -390,7 +397,7 @@ func (d *DiskLog) JournalDecoder() (Decoder, error) {
 		if b, err := birthFromName(name); err != nil || b <= snapbirth {
 			continue
 		}
-		file, err := os.Open(name)
+		file, err := d.fs.Open(name)
 		if err != nil {
 			return nil, err
 		}
