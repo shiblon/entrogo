@@ -146,12 +146,15 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 		// Get ready for a new round.
 		task = new(Task)
 		err = sdec.Decode(task)
+		if err != nil && err != io.EOF {
+			panic(fmt.Sprintf("corrupt snapshot: %v", err))
+		}
 	}
 
 	// Replay the journals.
 	transaction := new([]updateDiff)
 	err = jdec.Decode(transaction)
-	for err != io.EOF {
+	for err != io.EOF && err != io.ErrUnexpectedEOF {
 		// Replay this transaction - not busy snapshotting.
 		ts.playTransaction(*transaction, false)
 		ts.txnsSinceSnapshot++
@@ -159,6 +162,11 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 		// Next record
 		transaction = new([]updateDiff)
 		err = jdec.Decode(transaction)
+		if err == io.ErrUnexpectedEOF {
+			log.Println("Found unexpected EOF in journal stream. Continuing.")
+		} else if err != nil && err != io.EOF {
+			panic(fmt.Sprintf("corrupt journal: %v", err))
+		}
 	}
 
 	if opportunistic {
