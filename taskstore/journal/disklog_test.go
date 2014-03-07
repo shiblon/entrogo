@@ -20,6 +20,10 @@ import (
 	"testing"
 )
 
+// To corrupt the end of the file:
+// dl.journalFile.Write([]byte{2})
+
+
 func ExampleDiskLog() {
 	// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
 	fsimpl := NewMemFS([]string{"/tmp/disklog"})
@@ -37,7 +41,6 @@ func ExampleDiskLog() {
 			fmt.Printf("Failed to append %v: %v\n", d, err)
 		}
 	}
-
 	// We didn't write enough to trigger a rotation, so everything should be in
 	// the current journal. Let's see if we get it back.
 	decoder, err := dl.JournalDecoder()
@@ -53,15 +56,17 @@ func ExampleDiskLog() {
 			break
 		}
 		if err != nil {
-			fmt.Printf("Failed to decode next item in journal: %v\n", err)
+			fmt.Println("Error:", vals)
+			fmt.Printf("failed to decode next item in journal: %v\n", err)
 			return
 		}
 		vals = append(vals, val)
 	}
-	fmt.Println(vals)
+	fmt.Println("Success", vals)
 
 	// Output:
-	// [2 3 5 7 11 13]
+	//
+	// Success [2 3 5 7 11 13]
 }
 
 func TestNewDiskLog(*testing.T) {

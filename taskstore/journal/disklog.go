@@ -275,6 +275,11 @@ func (d *DiskLog) Dir() string {
 	return d.dir
 }
 
+// Return the current journal name.
+func (d *DiskLog) JournalName() string {
+	return d.journalName
+}
+
 // Append adds a record to the end of the journal.
 func (d *DiskLog) Append(rec interface{}) error {
 	resp := make(chan error, 1)
@@ -305,6 +310,7 @@ func (d *DiskLog) Rotate() error {
 	return <-resp
 }
 
+// latestFrozenSnapshot attempts to find the most recent snapshot on which to base journal replay.
 func (d *DiskLog) latestFrozenSnapshot() (int64, string, error) {
 	glob := filepath.Join(d.dir, fmt.Sprintf("*.*.snapshot"))
 	names, err := d.fs.FindMatching(glob)
@@ -353,6 +359,7 @@ func (d *DiskLog) SnapshotDecoder() (Decoder, error) {
 	return gob.NewDecoder(file), nil
 }
 
+// journalNames implements a Sorter interface, sorting based on timestamps.
 type journalNames []string
 
 func (n journalNames) Less(i, j int) bool {
