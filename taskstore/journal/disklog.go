@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"
-	"path/filepath"
+	"os"            // only use proc information, nothing that touches the file system.
+	"path/filepath" // only use name manipulation, nothing that touches the file system.
 	"sort"
 	"strconv"
 	"strings"
