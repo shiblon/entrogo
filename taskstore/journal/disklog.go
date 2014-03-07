@@ -436,5 +436,12 @@ func (d *DiskLog) JournalDecoder() (Decoder, error) {
 		return nil, io.EOF
 	}
 
+	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
+	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
+	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
+	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
+	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
+	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
+	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
 	return gob.NewDecoder(io.MultiReader(readers...)), nil
 }
