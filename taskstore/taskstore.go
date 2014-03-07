@@ -13,14 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/*
-Package taskstore implements a library for a simple task store.
-
-This provides abstractions for creating a simple task store process that
-manages data in memory and on disk. It can be used to implement a full-fledged
-task queue, but it is only the core storage piece. It does not, in particular,
-implement any networking.
-*/
+// Package taskstore implements a library for a simple task store.
+// This provides abstractions for creating a simple task store process that
+// manages data in memory and on disk. It can be used to implement a full-fledged
+// task queue, but it is only the core storage piece. It does not, in particular,
+// implement any networking.
 package taskstore
 
 import (

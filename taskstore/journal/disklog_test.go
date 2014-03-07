@@ -15,8 +15,55 @@
 package journal
 
 import (
+	"fmt"
+	"io"
 	"testing"
 )
 
-func TestStuff(*testing.T) {
+func ExampleDiskLog() {
+	// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
+	fsimpl := NewMemFS([]string{"/tmp/disklog"})
+	dl, err := NewDiskLogInjectOS("/tmp/disklog", fsimpl)
+	if err != nil {
+		fmt.Printf("Failed to open /tmp/disklog: %v\n", err)
+		return
+	}
+
+	// Data type can be anything. Here we're adding integers one at a time. We
+	// could also add the entire list at once, since it just gets gob-encoded.
+	data := []int{2, 3, 5, 7, 11, 13}
+	for _, d := range data {
+		if err := dl.Append(d); err != nil {
+			fmt.Printf("Failed to append %v: %v\n", d, err)
+		}
+	}
+
+	// We didn't write enough to trigger a rotation, so everything should be in
+	// the current journal. Let's see if we get it back.
+	decoder, err := dl.JournalDecoder()
+	if err != nil {
+		fmt.Printf("error getting decoder: %v\n", err)
+		return
+	}
+	vals := make([]int, 0)
+	val := -1
+	for {
+		err := decoder.Decode(&val)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			fmt.Printf("Failed to decode next item in journal: %v\n", err)
+			return
+		}
+		vals = append(vals, val)
+	}
+	fmt.Println(vals)
+
+	// Output:
+	// [2 3 5 7 11 13]
+}
+
+func TestNewDiskLog(*testing.T) {
+	// dl, err := NewDiskLog("/non-existent/directory")
 }

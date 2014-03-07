@@ -34,7 +34,7 @@ const (
 
 type DiskLog struct {
 	dir string
-	fs  OS
+	fs  FS
 
 	journalName      string
 	journalFile      File
@@ -60,13 +60,20 @@ type snapRequest struct {
 	resp     chan error
 }
 
-func NewDiskLog(dir string) *DiskLog {
+func NewDiskLog(dir string) (*DiskLog, error) {
 	// Default implementation just uses standard os module
-	return NewDiskLogInjectOS(dir, OSOS{})
+	return NewDiskLogInjectOS(dir, OSFS{})
 }
 
-func NewDiskLogInjectOS(dir string, fs OS) *DiskLog {
+func NewDiskLogInjectOS(dir string, fs FS) (*DiskLog, error) {
+	if info, err := fs.Stat(dir); err != nil {
+		return nil, fmt.Errorf("Unable to stat %q: %v", dir, err)
+	} else if !info.IsDir() {
+		return nil, fmt.Errorf("Path %q is not a directory", dir)
+	}
+
 	// TODO(chris): find a way to ensure this is a singleton for the given directory.
+
 	d := &DiskLog{
 		dir:  dir,
 		add:  make(chan addRequest, 1),
@@ -96,7 +103,7 @@ func NewDiskLogInjectOS(dir string, fs OS) *DiskLog {
 			}
 		}
 	}()
-	return d
+	return d, nil
 }
 
 // addRecord attempts to append the record to the end of the file, using gob encoding.
@@ -172,11 +179,11 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		// Finally, we delete all of the journal files that participated up to this point.
 		doneglob := filepath.Join(d.dir, "*.*.log")
 		workglob := filepath.Join(d.dir, "*.*.log.working")
-		donenames, err := filepath.Glob(doneglob)
+		donenames, err := d.fs.FindMatching(doneglob)
 		if err != nil {
 			log.Printf("finished name glob %q failed: %v", doneglob, err)
 		}
-		worknames, err := filepath.Glob(workglob)
+		worknames, err := d.fs.FindMatching(workglob)
 		if err != nil {
 			log.Printf("working name glob %q failed: %v", workglob, err)
 		}
@@ -300,7 +307,7 @@ func (d *DiskLog) Rotate() error {
 
 func (d *DiskLog) latestFrozenSnapshot() (int64, string, error) {
 	glob := filepath.Join(d.dir, fmt.Sprintf("*.*.snapshot"))
-	names, err := filepath.Glob(glob)
+	names, err := d.fs.FindMatching(glob)
 	if err != nil {
 		return -1, "", err
 	}
@@ -368,16 +375,15 @@ func (n journalNames) Len() int {
 func (d *DiskLog) JournalDecoder() (Decoder, error) {
 	doneglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log"))
 	workglob := filepath.Join(d.dir, fmt.Sprintf("*.*.log.working"))
-	donenames, err := filepath.Glob(doneglob)
-	if err != nil && err != io.EOF {
+	donenames, err := d.fs.FindMatching(doneglob)
+	switch {
+	case err == io.EOF:
+		return EmptyDecoder{}, nil
+	case err != nil:
 		return nil, err
 	}
-	// Default empty implementation for the case where there just isn't a file.
-	if err == io.EOF {
-		return EmptyDecoder{}, nil
-	}
 
-	worknames, err := filepath.Glob(workglob)
+	worknames, err := d.fs.FindMatching(workglob)
 	if err != nil {
 		return nil, err
 	}

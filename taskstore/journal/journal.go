@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/* Package journal is an implementation and interface specification for an
-* append-only journal with rotations. It contains a few simple implementations,
-* as well.
- */
+// Package journal is an implementation and interface specification for an
+// append-only journal with rotations. It contains a few simple implementations,
+// as well.
 package journal
 
 import (
@@ -61,8 +60,6 @@ type EmptyDecoder struct{}
 func (ed EmptyDecoder) Decode(interface{}) error {
 	return io.EOF
 }
-
-// TODO(chris): add the Decoder stuff to the implementations below.
 
 type Bytes struct {
 	enc  *gob.Encoder
