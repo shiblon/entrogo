@@ -110,7 +110,7 @@ type MemFS struct {
 	files map[string]*memFile
 }
 
-func NewMemFS(dirs []string) *MemFS {
+func NewMemFS(dirs ...string) *MemFS {
 	m := &MemFS{
 		files: make(map[string]*memFile),
 	}

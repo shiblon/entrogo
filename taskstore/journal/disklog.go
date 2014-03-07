@@ -30,6 +30,9 @@ import (
 const (
 	journalMaxRecords = 50000
 	journalMaxAge     = time.Hour * 24
+
+	// allow a ten-second clock correction before panicking. Yes, it's arbitrary.
+	clockSkewLeeway   = 10
 )
 
 type DiskLog struct {
@@ -124,8 +127,8 @@ func (d *DiskLog) addRecord(rec interface{}) error {
 	return nil
 }
 
-// birthFromName gets a timestamp from the file name (it's a prefix).
-func birthFromName(name string) (int64, error) {
+// TSFromName gets a timestamp from the file name (it's a prefix).
+func TSFromName(name string) (int64, error) {
 	name = filepath.Base(name)
 	pos := strings.IndexRune(name, '.')
 	if pos < 0 {
@@ -194,7 +197,7 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		// Mark all previous journals, finished or otherwise, as obsolete.
 		maxts := lastbirth.Unix()
 		for _, name := range names {
-			ts, err := birthFromName(name)
+			ts, err := TSFromName(name)
 			if err != nil {
 				log.Printf("skipping unknown name format %q: %v", name, err)
 				continue
@@ -245,8 +248,20 @@ func (d *DiskLog) freezeLog() error {
 // not check whether another one is already open, it just abandons it without
 // closing it.
 func (d *DiskLog) openNewLog() error {
+	// Make sure we don't rotate into the past. That will mess everything up.
+	var name string
+	oldbirth := d.journalBirth
 	birth := time.Now()
-	name := filepath.Join(d.dir, fmt.Sprintf("%d.%d.log.working", birth.Unix(), os.Getpid()))
+	if birth.Unix() < oldbirth.Unix() - clockSkewLeeway {
+		panic(fmt.Sprintf(
+			"latest log created at timestamp %d, which appears to be in the future; current time is %d\n" +
+			"either the clock got changed, or too many rotations have happened in a short period of time",
+			oldbirth.Unix(), birth.Unix()))
+	} else if birth.Unix() <= oldbirth.Unix() {
+		birth = oldbirth.Add(1 * time.Second)
+	}
+	name = filepath.Join(d.dir, fmt.Sprintf("%d.%d.log.working", birth.Unix(), os.Getpid()))
+
 	f, err := d.fs.Create(name)
 	if err != nil {
 		return err
@@ -323,7 +338,7 @@ func (d *DiskLog) latestFrozenSnapshot() (int64, string, error) {
 	bestts := int64(-1)
 	bestname := ""
 	for _, name := range names {
-		ts, err := birthFromName(name)
+		ts, err := TSFromName(name)
 		if err != nil {
 			log.Printf("can't find id in in %q: %v", name, err)
 			continue
@@ -363,8 +378,8 @@ func (d *DiskLog) SnapshotDecoder() (Decoder, error) {
 type journalNames []string
 
 func (n journalNames) Less(i, j int) bool {
-	bi, _ := birthFromName(n[i])
-	bj, _ := birthFromName(n[j])
+	bi, _ := TSFromName(n[i])
+	bj, _ := TSFromName(n[j])
 	return bi < bj
 }
 
@@ -407,7 +422,7 @@ func (d *DiskLog) JournalDecoder() (Decoder, error) {
 
 	var readers []io.Reader
 	for _, name := range names {
-		if b, err := birthFromName(name); err != nil || b <= snapbirth {
+		if b, err := TSFromName(name); err != nil || b <= snapbirth {
 			continue
 		}
 		file, err := d.fs.Open(name)
