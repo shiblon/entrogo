@@ -423,6 +423,9 @@ func newGobMultiDecoder(fs FS, filenames ...string) (*gobMultiDecoder, error) {
 	}, nil
 }
 
+// Decode runs the decode function on each file in turn, skipping records that
+// produce an ErrUnexpectedEOF. When we checksum records, it will also stop on
+// those and verify that they are each the last such in their respective files.
 func (d *gobMultiDecoder) Decode(val interface{}) error {
 	err := d.decoder.Decode(val)
 	for err == io.EOF || err == io.ErrUnexpectedEOF {
