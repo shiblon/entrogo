@@ -65,10 +65,10 @@ type snapRequest struct {
 
 func NewDiskLog(dir string) (*DiskLog, error) {
 	// Default implementation just uses standard os module
-	return NewDiskLogInjectOS(dir, OSFS{})
+	return NewDiskLogInjectFS(dir, OSFS{})
 }
 
-func NewDiskLogInjectOS(dir string, fs FS) (*DiskLog, error) {
+func NewDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 	if info, err := fs.Stat(dir); err != nil {
 		return nil, fmt.Errorf("Unable to stat %q: %v", dir, err)
 	} else if !info.IsDir() {
@@ -156,13 +156,15 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 	encoder := gob.NewEncoder(file)
 	go func() {
 		defer file.Close()
-		// make sure we consume all of them to play nice with the producer.
+		// make sure we consume all of them to play nicely with the producer.
 		defer func() {
 			num := 0
 			for _ = range elems {
 				num++
 			}
-			log.Printf("consumed but did not snapshot %d elements", num)
+			if num > 0 {
+				log.Printf("consumed but did not snapshot %d element(s)", num)
+			}
 		}()
 
 		for elem := range elems {

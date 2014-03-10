@@ -24,7 +24,7 @@ import (
 func ExampleDiskLog() {
 	// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
 	fs := NewMemFS("/tmp/disklog")
-	journal, err := NewDiskLogInjectOS("/tmp/disklog", fs)
+	journal, err := NewDiskLogInjectFS("/tmp/disklog", fs)
 	if err != nil {
 		fmt.Printf("Failed to open /tmp/disklog: %v\n", err)
 		return
@@ -68,7 +68,7 @@ func ExampleDiskLog() {
 
 func TestDiskLog_Rotate(t *testing.T) {
 	fs := NewMemFS("/tmp/disklog")
-	journal, err := NewDiskLogInjectOS("/tmp/disklog", fs)
+	journal, err := NewDiskLogInjectFS("/tmp/disklog", fs)
 	if err != nil {
 		t.Fatalf("failed to create memfs disklog: %v", err)
 	}
@@ -154,15 +154,15 @@ func TestDiskLog_Rotate(t *testing.T) {
 
 	if workts <= frozents {
 		t.Fatalf(
-			"working logs should always be newer than frozen logs. " +
-			"Got working=%d, frozen=%d from\n%q\n%q", workts, frozents, workbase, frozenbase)
+			"working logs should always be newer than frozen logs. "+
+				"Got working=%d, frozen=%d from\n%q\n%q", workts, frozents, workbase, frozenbase)
 	}
 }
 
 func TestDiskLog_Decode_Corrupt(t *testing.T) {
 	// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
 	fs := NewMemFS("/tmp/disklog")
-	journal, err := NewDiskLogInjectOS("/tmp/disklog", fs)
+	journal, err := NewDiskLogInjectFS("/tmp/disklog", fs)
 	if err != nil {
 		t.Fatalf("failed to open /tmp/disklog: %v\n", err)
 	}
@@ -189,7 +189,7 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 	// It should be ignored by the decoder.
 	decoder, err := journal.JournalDecoder()
 	if err != nil {
-		fmt.Printf("error getting decoder: %v\n", err)
+		t.Fatalf("error getting decoder: %v\n", err)
 		return
 	}
 	vals := make([]int, 0)
@@ -200,9 +200,8 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 			break
 		}
 		if err != nil {
-			fmt.Println("Error:", vals)
-			fmt.Printf("failed to decode next item in journal: %v\n", err)
-			return
+			t.Error("Error:", vals)
+			t.Fatalf("failed to decode next item in journal: %v\n", err)
 		}
 		vals = append(vals, val)
 	}
@@ -210,16 +209,76 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 	// Then ensure that we still have all the data AND that we got the unexpected EOF.
 	for i, d := range vals {
 		if d != data[i] {
-			t.Errorf("Expected %v, got %v", data, vals)
-			break
+			t.Fatalf("Expected %v, got %v", data, vals)
 		}
 	}
 	// TODO: ensure that the log receives an unexpected EOF warning message.
 }
 
-// TODO: write a snapshot test or two or three
-// TODO: write a snapshot test or two or three
-// TODO: write a snapshot test or two or three
-// TODO: write a snapshot test or two or three
-// TODO: write a snapshot test or two or three
-// TODO: write a snapshot test or two or three
+func TestDiskLog_Snapshot(t *testing.T) {
+	type dtype struct {
+		S string
+		I int
+	}
+	data := []dtype{
+		{"blah", 3},
+		{"hi", 1},
+		{"hello", 2},
+	}
+
+	fs := NewMemFS("/myfs")
+	journal, err := NewDiskLogInjectFS("/myfs", fs)
+	if err != nil {
+		t.Fatalf("failed to create journal: %v", err)
+	}
+
+	// We don't have to append to the journal to create a snapshot, so we don't
+	// bother. Just start a snapshot and provide the right data.
+	recs := make(chan interface{}, 1)
+	resp := make(chan error, 1)
+	go func() {
+		defer close(recs)
+		for _, d := range data {
+			recs <- d
+		}
+	}()
+	if err := journal.StartSnapshot(recs, resp); err != nil {
+		t.Fatalf("error starting snapshot: %v", err)
+	}
+
+	if err := <-resp; err != nil {
+		t.Fatalf("error in response to snapshot request: %v", err)
+	}
+
+	// Now the snapshot is complete. Ensure that it is there.
+	names, err := fs.FindMatching("/myfs/*.*.snapshot")
+	if len(names) != 1 {
+		t.Fatalf("expected 1 snapshot, found %d: %v", len(names), names)
+	}
+
+	// And replay the data.
+	decoder, err := journal.SnapshotDecoder()
+	if err != nil {
+		t.Fatalf("error getting snapshot decoder: %v", err)
+	}
+
+	replayed := make([]dtype, 0, len(data))
+	var val dtype
+	for {
+		err := decoder.Decode(&val)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("error decoding value in snapshot: %v", err)
+		}
+		replayed = append(replayed, val)
+	}
+
+	// And finally test that we have equality.
+	for i, d := range data {
+		if d != replayed[i] {
+			t.Fatalf("expected %v, got %v on replay", data, replayed)
+		}
+	}
+}
