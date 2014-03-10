@@ -32,7 +32,7 @@ const (
 	journalMaxAge     = time.Hour * 24
 
 	// allow a ten-second clock correction before panicking. Yes, it's arbitrary.
-	clockSkewLeeway   = 10
+	clockSkewLeeway = 10
 )
 
 type DiskLog struct {
@@ -252,10 +252,10 @@ func (d *DiskLog) openNewLog() error {
 	var name string
 	oldbirth := d.journalBirth
 	birth := time.Now()
-	if birth.Unix() < oldbirth.Unix() - clockSkewLeeway {
+	if birth.Unix() < oldbirth.Unix()-clockSkewLeeway {
 		panic(fmt.Sprintf(
-			"latest log created at timestamp %d, which appears to be in the future; current time is %d\n" +
-			"either the clock got changed, or too many rotations have happened in a short period of time",
+			"latest log created at timestamp %d, which appears to be in the future; current time is %d\n"+
+				"either the clock got changed, or too many rotations have happened in a short period of time",
 			oldbirth.Unix(), birth.Unix()))
 	} else if birth.Unix() <= oldbirth.Unix() {
 		birth = oldbirth.Add(1 * time.Second)
@@ -391,6 +391,67 @@ func (n journalNames) Len() int {
 	return len(n)
 }
 
+// gobMultiDecoder decodes gob entries from multiple readers in series. An
+// io.MultiReader is not suitable here because each journal file can have a
+// single corrupt entry at the end, so we have to gracefully handle
+// ErrUnexpectedEOF in the logical *middle* of the whole journal stream.
+type gobMultiDecoder struct {
+	fs FS
+
+	filenames []string
+	cur       int
+
+	file    File
+	decoder *gob.Decoder
+}
+
+func newGobMultiDecoder(fs FS, filenames ...string) (*gobMultiDecoder, error) {
+	if len(filenames) == 0 {
+		return nil, fmt.Errorf("gob multidecoder needs at least one file")
+	}
+	f, err := fs.Open(filenames[0])
+	if err != nil {
+		return nil, fmt.Errorf("could not open file %q to create a multidecoder: %v", filenames[0], err)
+	}
+	return &gobMultiDecoder{
+		fs:        fs,
+		filenames: filenames,
+		file:      f,
+		decoder:   gob.NewDecoder(f),
+	}, nil
+}
+
+func (d *gobMultiDecoder) Decode(val interface{}) error {
+	err := d.decoder.Decode(val)
+	for err == io.EOF || err == io.ErrUnexpectedEOF {
+		if err == io.ErrUnexpectedEOF {
+			log.Printf("journal file %q has an unexpected EOF", d.filenames[d.cur])
+			// Try to read one more time, ensure we get an actual EOF.
+			v := struct{}{}
+			err := d.decoder.Decode(&v)
+			if err != io.EOF && err != io.ErrUnexpectedEOF {
+				// OK - the next record really *wasn't* supposed to be the
+				// last. Only the last record is allowed to be a partial write
+				// or otherwise corrupt, so this is a real problem.
+				return io.ErrUnexpectedEOF
+			}
+		}
+		d.cur++
+		if d.cur >= len(d.filenames) {
+			return io.EOF // really and truly finished, now.
+		}
+		name := d.filenames[d.cur]
+		d.file, err = d.fs.Open(name)
+		if err != nil {
+			log.Printf("failed journal decode for file %q: %v", name, err)
+			return err
+		}
+		d.decoder = gob.NewDecoder(d.file)
+		err = d.decoder.Decode(val)
+	}
+	return err
+}
+
 // JournalDecoder returns a Decoder whose Decode function can be called to get
 // the next item from the journals that are newer than the most recent
 // snapshot.
@@ -419,29 +480,16 @@ func (d *DiskLog) JournalDecoder() (Decoder, error) {
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
-
-	var readers []io.Reader
-	for _, name := range names {
-		if b, err := TSFromName(name); err != nil || b <= snapbirth {
-			continue
-		}
-		file, err := d.fs.Open(name)
+	for i, name := range(names) {
+		ts, err := TSFromName(name)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get timestamp from name %q: %v", name, err)
 		}
-		readers = append(readers, file)
+		if ts > snapbirth {
+			// Found the first journal file later than the snapshot. Return the decoder.
+			return newGobMultiDecoder(d.fs, names[i:]...)
+		}
 	}
-
-	if len(readers) == 0 {
-		return nil, io.EOF
-	}
-
-	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
-	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
-	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
-	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
-	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
-	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
-	// TODO(chris): MultiReader isn't good enough - we can get io.ErrUnexpectedEOF in legitimate cases.
-	return gob.NewDecoder(io.MultiReader(readers...)), nil
+	// No journals found later than the snapshot.
+	return EmptyDecoder{}, nil
 }

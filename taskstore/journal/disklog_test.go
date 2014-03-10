@@ -186,6 +186,7 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 	fs.files[working[0]].Write([]byte{2})
 
 	// And try to decode, including the last bogus record.
+	// It should be ignored by the decoder.
 	decoder, err := journal.JournalDecoder()
 	if err != nil {
 		fmt.Printf("error getting decoder: %v\n", err)
@@ -193,13 +194,9 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 	}
 	vals := make([]int, 0)
 	val := -1
-	unexpectedEOF := false
 	for {
 		err := decoder.Decode(&val)
 		if err == io.EOF {
-			break
-		} else if err == io.ErrUnexpectedEOF {
-			unexpectedEOF = true
 			break
 		}
 		if err != nil {
@@ -218,8 +215,6 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 		}
 	}
 
-	if !unexpectedEOF {
-		t.Errorf("Expected to get an UnexpectedEOF error (added corrupt data), but did not.")
-	}
+	// TODO: ensure that the log receives an unexpected EOF message.
 }
 
