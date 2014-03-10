@@ -16,10 +16,12 @@ package journal
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -184,4 +186,22 @@ func (m *MemFS) FindMatching(glob string) ([]string, error) {
 		}
 	}
 	return matches, nil
+}
+
+func (m *MemFS) String() string {
+	lines := []string{fmt.Sprintf("MemFS %p", m)}
+	names := make([]string, 0, len(m.files))
+	for k := range m.files {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		s, err := m.Stat(n)
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("  %s: <stat err %v>", n, err))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  %s: %d", n, s.Size()))
+	}
+	return strings.Join(lines, "\n")
 }

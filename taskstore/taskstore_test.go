@@ -16,37 +16,37 @@
 package taskstore
 
 import (
-	"fmt"
+	"log"
+	"testing"
 
 	"code.google.com/p/entrogo/taskstore/journal"
 )
 
-func ExampleTaskStore_Add() {
-	jr := journal.NewCount()
-	ts := NewStrict(jr)
-	adds := []*Task{
-		NewTask("mygroup"),
+func TestTaskStore_Add(t *testing.T) {
+	fs := journal.NewMemFS("/myfs")
+	jr, err := journal.NewDiskLogInjectFS("/myfs", fs)
+	if err != nil {
+		t.Fatalf("failed to create journal: %v", err)
 	}
-	var owner int32 = 13
-	newtasks, err := ts.Update(owner, adds, nil, nil, nil)
-	fmt.Println(ts)
-	fmt.Println("Err:", err)
-	for i, t := range newtasks {
-		fmt.Println(i, "ID:", t.ID)
-		fmt.Println(i, "Owner:", owner)
-	}
-	fmt.Printf("Journal: %v", jr)
+	store := NewStrict(jr)
 
-	// Output:
-	//
-	// TaskStore:
-	//   groups:
-	//     "mygroup"
-	//   snapshotting: false
-	//   num tasks: 1
-	//   last task id: 1
-	// Err: <nil>
-	// 0 ID: 1
-	// 0 Owner: 13
-	// Journal: records written = 1
+	var ownerID int32 = 11
+
+	tasks := []*Task{
+		NewTask("g1", "hello there"),
+		NewTask("g1", "hi"),
+		NewTask("g2", "10"),
+		NewTask("g2", "5"),
+		NewTask("g3", "-"),
+		NewTask("g3", "_"),
+	}
+
+	newtasks, err := store.Update(ownerID, tasks, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to add new tasks: %v", err)
+	}
+
+	// TODO: what do we check for here?
+	log.Println(newtasks)
+	log.Println(fs)
 }
