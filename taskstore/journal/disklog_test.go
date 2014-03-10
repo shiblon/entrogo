@@ -214,7 +214,12 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 			break
 		}
 	}
-
-	// TODO: ensure that the log receives an unexpected EOF message.
+	// TODO: ensure that the log receives an unexpected EOF warning message.
 }
 
+// TODO: write a snapshot test or two or three
+// TODO: write a snapshot test or two or three
+// TODO: write a snapshot test or two or three
+// TODO: write a snapshot test or two or three
+// TODO: write a snapshot test or two or three
+// TODO: write a snapshot test or two or three
