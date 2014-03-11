@@ -75,8 +75,6 @@ func NewDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 		return nil, fmt.Errorf("Path %q is not a directory", dir)
 	}
 
-	// TODO(chris): find a way to ensure this is a singleton for the given directory.
-
 	d := &DiskLog{
 		dir:  dir,
 		add:  make(chan addRequest, 1),
