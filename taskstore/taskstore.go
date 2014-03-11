@@ -606,8 +606,6 @@ func (t *TaskStore) Groups() []string {
 	return resp.Val.([]string)
 }
 
-// TODO(chris): Add a "dump" or "list all" function.
-
 // Claim attempts to find one random unowned task in each of the specified
 // group names and set the ownership to the specified owner. If successful, the
 // newly-owned tasks are returned with their AvailableTime set to now +

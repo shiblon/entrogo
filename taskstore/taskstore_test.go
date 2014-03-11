@@ -176,6 +176,27 @@ func TestTaskStore_Update(t *testing.T) {
 	if len(updated3) != 1 {
 		t.Fatalf("expected 1 update with a task deletion, got %v", updated3)
 	}
+
+	all := make(map[int64]*Task)
+	for _, g := range store.Groups() {
+		for _, t := range store.ListGroup(g, 0, true) {
+			all[t.ID] = t
+		}
+	}
+
+	expectedData := map[int64]string{
+		2: "hi",
+		4: "5",
+		5: "-",
+		6: "_",
+		8: "hello there", // last to be updated, so it moved to the end
+	}
+
+	for id, data := range expectedData {
+		if all[id].Data != data {
+			t.Errorf("full dump: expected %q, got %q", data, all[id].Data)
+		}
+	}
 }
 
 func eqStrings(l1, l2 []string) bool {
