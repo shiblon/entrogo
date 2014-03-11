@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"syscall"
 	"strings"
 	"time"
 )
@@ -29,6 +30,8 @@ type FS interface {
 	Create(name string) (File, error)
 	Open(name string) (File, error)
 	Rename(oldname, newname string) error
+	Remove(name string) error
+	Lock(name string) (io.Closer, error)
 	Stat(name string) (os.FileInfo, error)
 	FindMatching(glob string) ([]string, error)
 }
@@ -52,6 +55,10 @@ func (OSFS) Rename(oldname, newname string) error {
 	return os.Rename(oldname, newname)
 }
 
+func (OSFS) Remove(name string) error {
+	return os.Remove(name)
+}
+
 func (OSFS) Stat(name string) (os.FileInfo, error) {
 	return os.Stat(name)
 }
@@ -60,15 +67,32 @@ func (OSFS) FindMatching(glob string) ([]string, error) {
 	return filepath.Glob(glob)
 }
 
+func (OSFS) Lock(name string) (io.Closer, error) {
+	file, err := os.Create(name)
+	if err != nil {
+		return nil, err
+	}
+	err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
 type memFile struct {
 	bytes.Buffer
 	name    string
 	open    bool
 	modtime time.Time
 	isdir   bool
+	onClose func()
 }
 
 func (f *memFile) Close() error {
+	if f.onClose != nil {
+		f.onClose()
+	}
 	f.open = false
 	return nil
 }
@@ -141,6 +165,19 @@ func (m *MemFS) Open(name string) (File, error) {
 	return f, nil
 }
 
+func (m *MemFS) Lock(name string) (io.Closer, error) {
+	file, err := m.Create(name)
+	// This is a pretty lame implementation - it relies on the file going away
+	// after the lock is released, and that doesn't happen here.
+	if err != nil {
+		return nil, err
+	}
+	file.(*memFile).onClose = func() {
+		m.Remove(name)
+	}
+	return file, nil
+}
+
 func (m *MemFS) Rename(oldname, newname string) error {
 	f, ok := m.files[oldname]
 	if !ok {
@@ -153,6 +190,11 @@ func (m *MemFS) Rename(oldname, newname string) error {
 	f.name = newname
 	m.files[newname] = f
 	delete(m.files, oldname)
+	return nil
+}
+
+func (m *MemFS) Remove(name string) error {
+	delete(m.files, name)
 	return nil
 }
 
