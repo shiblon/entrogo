@@ -188,8 +188,8 @@ func (t *TaskStore) String() string {
 	return resp.Val.(string)
 }
 
-// nowMillis returns the current time in milliseconds since the UTC epoch.
-func nowMillis() int64 {
+// NowMillis returns the current time in milliseconds since the UTC epoch.
+func NowMillis() int64 {
 	return time.Now().UnixNano() / int64(time.Millisecond/time.Nanosecond)
 }
 
@@ -394,7 +394,7 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 		}
 	}
 
-	now := nowMillis()
+	now := NowMillis()
 
 	// Check that the requested operation is allowed.
 	// This means:
@@ -454,10 +454,13 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	return newTasks, nil
 }
 
-func (t *TaskStore) listGroup(lg reqListGroup) ([]*Task, error) {
+func (t *TaskStore) listGroup(lg reqListGroup) []*Task {
 	h, ok := t.heaps[lg.Name]
 	if !ok {
-		return nil, fmt.Errorf("requested group %q does not exist", lg.Name)
+		// A non-existent group is actually not a problem. Groups are deleted
+		// when empty and lazily created, so we allow them to simply come up
+		// empty.
+		return nil
 	}
 	limit := lg.Limit
 	if limit <= 0 || limit > h.Len() {
@@ -470,7 +473,7 @@ func (t *TaskStore) listGroup(lg reqListGroup) ([]*Task, error) {
 			tasks[i] = h.PeekAt(i).(*Task)
 		}
 	} else {
-		now := nowMillis()
+		now := NowMillis()
 		tasks = make([]*Task, 0, limit)
 		for i, found := 0, 0; i < h.Len() && found < limit; i++ {
 			task := h.PeekAt(i).(*Task)
@@ -480,7 +483,7 @@ func (t *TaskStore) listGroup(lg reqListGroup) ([]*Task, error) {
 			}
 		}
 	}
-	return tasks, nil
+	return tasks
 }
 
 func (t *TaskStore) groups() []string {
@@ -492,7 +495,7 @@ func (t *TaskStore) groups() []string {
 }
 
 func (t *TaskStore) claim(claim reqClaim) ([]*Task, error) {
-	now := nowMillis()
+	now := NowMillis()
 	nmap := make(map[string]bool)
 	for _, name := range claim.Names {
 		if _, ok := nmap[name]; ok {
@@ -587,20 +590,20 @@ func (t *TaskStore) Update(owner int32, add, change []*Task, del []int64, dep []
 // indicates that all possible tasks should be returned. If allowOwned is
 // specified, then even tasks with AvailableTime in the future that are owned
 // by other clients will be returned.
-func (t *TaskStore) ListGroup(name string, limit int, allowOwned bool) ([]*Task, error) {
+func (t *TaskStore) ListGroup(name string, limit int, allowOwned bool) []*Task {
 	lg := reqListGroup{
 		Name:       name,
 		Limit:      limit,
 		AllowOwned: allowOwned,
 	}
 	resp := t.sendRequest(lg, t.listGroupChan)
-	return resp.Val.([]*Task), resp.Err
+	return resp.Val.([]*Task)
 }
 
 // Groups returns a list of all of the groups known to this task store.
-func (t *TaskStore) Groups() ([]string, error) {
+func (t *TaskStore) Groups() []string {
 	resp := t.sendRequest(nil, t.groupsChan)
-	return resp.Val.([]string), resp.Err
+	return resp.Val.([]string)
 }
 
 // Claim attempts to find one random unowned task in each of the specified
@@ -703,8 +706,8 @@ func (t *TaskStore) handle() {
 			}
 			req.ResultChan <- response{tasks, err}
 		case req := <-t.listGroupChan:
-			tasks, err := t.listGroup(req.Val.(reqListGroup))
-			req.ResultChan <- response{tasks, err}
+			tasks := t.listGroup(req.Val.(reqListGroup))
+			req.ResultChan <- response{tasks, nil}
 		case req := <-t.claimChan:
 			tasks, err := t.claim(req.Val.(reqClaim))
 			req.ResultChan <- response{tasks, err}

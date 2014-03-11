@@ -16,13 +16,15 @@
 package taskstore
 
 import (
-	"log"
+	"fmt"
+	"sort"
+	"strings"
 	"testing"
 
 	"code.google.com/p/entrogo/taskstore/journal"
 )
 
-func TestTaskStore_Add(t *testing.T) {
+func TestTaskStore_Update(t *testing.T) {
 	fs := journal.NewMemFS("/myfs")
 	jr, err := journal.NewDiskLogInjectFS("/myfs", fs)
 	if err != nil {
@@ -41,12 +43,149 @@ func TestTaskStore_Add(t *testing.T) {
 		NewTask("g3", "_"),
 	}
 
-	newtasks, err := store.Update(ownerID, tasks, nil, nil, nil)
+	added, err := store.Update(ownerID, tasks, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to add new tasks: %v", err)
 	}
 
-	// TODO: what do we check for here?
-	log.Println(newtasks)
-	log.Println(fs)
+	now := NowMillis()
+
+	// Ensure that the tasks are exactly what we added, but with id values, etc.
+	for i, task := range tasks {
+		nt := added[i]
+		if nt.ID <= 0 {
+			t.Errorf("new task should have non-zero assigned ID, has %d", nt.ID)
+		}
+		if task.Group != nt.Group {
+			t.Errorf("expected task group %q, got %q", task.Group, nt.Group)
+		}
+		if nt.OwnerID != ownerID {
+			t.Errorf("expected owner ID %d, got %d", ownerID, nt.OwnerID)
+		}
+		if nt.AvailableTime > now {
+			t.Errorf("new task has assigned available time in the future. expected t <= %d, got %d", now, nt.AvailableTime)
+		} else if nt.AvailableTime <= 0 {
+			t.Errorf("expected valid available time, got %d", nt.AvailableTime)
+		}
+		if nt.Data != task.Data {
+			t.Errorf("expected task data to be %q, got %q", task.Data, nt.Data)
+		}
+	}
+
+	groups := store.Groups()
+	sort.Strings(groups)
+
+	wantedGroups := []string{"g1", "g2", "g3"}
+
+	if !eqStrings(wantedGroups, groups) {
+		t.Fatalf("expected groups %v, got %v", wantedGroups, groups)
+	}
+
+	g1Tasks := store.ListGroup("g1", -1, true)
+	if len(g1Tasks) != 2 {
+		t.Errorf("g1 should have 2 tasks, has %v", g1Tasks)
+	}
+
+	// Try getting a non-existent group. Should come back nil.
+	nongroupTasks := store.ListGroup("nongroup", -1, true)
+	if nongroupTasks != nil {
+		t.Errorf("nongroup should come back nil (no tasks, but not an error), came back %v", nongroupTasks)
+	}
+
+	// Now claim a task by setting its AvailableTime in the future by some number of milliseconds.
+	t0 := added[0].Copy()
+	t0.AvailableTime += 60 * 1000 // 1 minute into the future, this will expire
+	updated, err := store.Update(ownerID, nil, []*Task{t0}, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to update task %v: %v", added[0], err)
+	}
+	if updated[0].ID <= added[0].ID {
+		t.Errorf("expected updated task to have ID > original, but got %d <= %d", updated[0].ID, added[0].ID)
+	}
+	if updated[0].Group != added[0].Group {
+		t.Errorf("expected updated task to have group %q, got %q", added[0].Group, updated[0].Group)
+	}
+	if updated[0].OwnerID != ownerID {
+		t.Errorf("expected updated task to have owner ID %d, got %d", ownerID, updated[0].OwnerID)
+	}
+	if updated[0].AvailableTime - added[0].AvailableTime != 60000 {
+		t.Errorf("expected updated task to expire 1 minute later than before, but got a difference of %d", updated[0].AvailableTime - added[0].AvailableTime)
+	}
+	// Task is now owned, so it should not come back if we disallow owned tasks in a group listing.
+	g1Available := store.ListGroup("g1", 0, false)
+	if len(g1Available) > 1 {
+		t.Errorf("expected 1 unowned task in g1, got %d", len(g1Available))
+	}
+	if g1Available[0].ID == updated[0].ID {
+		t.Errorf("expected to get a task ID != %d (an unowned task), but got it anyway", updated[0].ID)
+	}
+
+	// This owner should be able to update its own future task.
+	t0 = updated[0].Copy()
+	t0.AvailableTime += 1000
+	updated2, err := store.Update(ownerID, nil, []*Task{t0}, nil, nil)
+	if err != nil {
+		t.Fatalf("couldn't update future task: %v", err)
+	}
+	if updated2[0].AvailableTime - updated[0].AvailableTime != 1000 {
+		t.Errorf("expected 1-second increase in available time, got difference of %d milliseconds", updated2[0].AvailableTime - updated[0].AvailableTime)
+	}
+
+	// But another owner should not be able to touch it.
+	t0 = updated2[0].Copy()
+	t0.AvailableTime += 2000
+	_, err = store.Update(ownerID + 1, nil, []*Task{t0}, nil, nil)
+	if err == nil {
+		t.Fatalf("owner %d should not succeed in updated task owned by %d", ownerID + 1, ownerID)
+	}
+	uerr, ok := err.(UpdateError)
+	if !ok {
+		t.Fatalf("unexpected error type, could not convert to UpdateError: %#v", err)
+	}
+	if len(uerr.Errors) != 1 {
+		t.Errorf("expected 1 error in UpdateError list, got %d", len(uerr.Errors))
+	}
+	if !strings.Contains(uerr.Errors[0].Error(), fmt.Sprintf("owned by %d, cannot be changed by %d", ownerID, ownerID + 1)) {
+		t.Errorf("expected ownership error, got %v", uerr.Errors)
+	}
+
+	// Now try to update something that depends on an old task (our original
+	// task, which has now been updated and is therefore no longer present).
+	_, err = store.Update(ownerID, nil, []*Task{t0}, nil, []int64{tasks[0].ID})
+	if err == nil {
+		t.Fatalf("expected updated dependent on %d to fail, as that task should not be around", tasks[0].ID)
+	}
+	if !strings.Contains(err.(UpdateError).Errors[0].Error(), "unmet dependency:") {
+		t.Fatalf("expected unmet dependency error, got %v", err.(UpdateError).Errors)
+	}
+
+	// Try updating a task that we already updated.
+	_, err = store.Update(ownerID, nil, []*Task{updated[0]}, nil, nil)
+	if err == nil {
+		t.Fatalf("expected to get an error when updating a task that was already updated")
+	}
+	if !strings.Contains(err.(UpdateError).Errors[0].Error(), "not found") {
+		t.Fatalf("expected task not found error, got %v", err.(UpdateError).Errors)
+	}
+
+	// And now try deleting a task.
+	updated3, err := store.Update(ownerID, nil, nil, []int64{updated[2].ID}, nil)
+	if err != nil {
+		t.Fatalf("deletion of task %v failed: %v", updated[2], err)
+	}
+	if len(updated3) != 1 {
+		t.Fatalf("expected 1 update with a task deletion, got %v", updated3)
+	}
+}
+
+func eqStrings(l1, l2 []string) bool {
+	if len(l1) != len(l2) {
+		return false
+	}
+	for i := range l1 {
+		if l1[i] != l2[i] {
+			return false
+		}
+	}
+	return true
 }
