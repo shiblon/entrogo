@@ -169,9 +169,9 @@ func TestTaskStore_Update(t *testing.T) {
 	}
 
 	// And now try deleting a task.
-	updated3, err := store.Update(ownerID, nil, nil, []int64{updated[2].ID}, nil)
+	updated3, err := store.Update(ownerID, nil, nil, []int64{added[2].ID}, nil)
 	if err != nil {
-		t.Fatalf("deletion of task %v failed: %v", updated[2], err)
+		t.Fatalf("deletion of task %v failed: %v", added[2], err)
 	}
 	if len(updated3) != 1 {
 		t.Fatalf("expected 1 update with a task deletion, got %v", updated3)
