@@ -241,6 +241,14 @@ func (t *TaskStore) nextID() int64 {
 
 // snapshot takes care of using the journaler to create a snapshot.
 func (t *TaskStore) snapshot() error {
+	// first we make sure that the cache is flushed. We're still synchronous,
+	// because we're in the main handler and no goroutines have been created.
+
+	t.depleteCache(0)
+	if len(t.tmpTasks) + len(t.delTasks) > 0 {
+		panic("depleted cache in synchronous code, but not depleted. should never happen.")
+	}
+
 	data := make(chan interface{}, 1)
 	done := make(chan error, 1)
 	snapresp := make(chan error, 1)
@@ -303,11 +311,12 @@ func (t *TaskStore) playTransaction(tx []updateDiff, ro bool) {
 	}
 }
 
-// partialDepleteCache tries to move some of the elements in
+// depleteCache tries to move some of the elements in
 // temporary structures into the main data area.
-func (t *TaskStore) partialDepleteCache(todo int) {
+// Passing a number <= 0 indicates full depletion.
+func (t *TaskStore) depleteCache(todo int) {
 	if todo <= 0 {
-		todo = 1
+		todo = len(t.tmpTasks) + len(t.delTasks)
 	}
 	for ; todo > 0; todo-- {
 		switch {
@@ -701,7 +710,7 @@ func (t *TaskStore) handle() {
 				// of the cache into the main data section. On the off chance that
 				// snapshotting finished by now, we check it again.
 				if !t.snapshotting {
-					t.partialDepleteCache(maxCacheDepletion)
+					t.depleteCache(maxCacheDepletion)
 				}
 			}
 			req.ResultChan <- response{tasks, err}
@@ -731,7 +740,7 @@ func (t *TaskStore) handle() {
 			t.snapshotting = false
 		case <-idler:
 			// The idler got a chance to tick. Trigger a short depletion.
-			t.partialDepleteCache(maxCacheDepletion)
+			t.depleteCache(maxCacheDepletion)
 		case transaction := <-t.journalChan:
 			// Opportunistic journaling.
 			// TODO: will journaling fall behind due to starvation in here? Should opportunistic be asynchronous?
