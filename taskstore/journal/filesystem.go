@@ -61,12 +61,12 @@ func (OSFS) Remove(name string) error {
 }
 
 func (OSFS) Lock(name string) error {
-	f, err := os.OpenFile(name, os.O_WRONLY | os.O_EXCL | os.O_CREATE, 0660)
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_EXCL|os.O_CREATE, 0660)
 	if err != nil {
 		return err
 	}
 	// non-blocking exclusive lock
-	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX | syscall.LOCK_NB)
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err != nil {
 		os.Remove(name)
 		return err
@@ -132,8 +132,8 @@ func (fi *memFileInfo) Sys() interface{} {
 }
 
 type MemFS struct {
-	sync.Mutex
-	files map[string]*memFile
+	lockmx sync.Mutex
+	files  map[string]*memFile
 }
 
 func NewMemFS(dirs ...string) *MemFS {
@@ -186,8 +186,7 @@ func (m *MemFS) Remove(name string) error {
 }
 
 func (m *MemFS) Lock(name string) error {
-	m.Mutex.Lock()
-	defer m.Mutex.Unlock()
+	defer un(lock(&m.lockmx))
 
 	if _, ok := m.files[name]; ok {
 		return os.ErrExist

@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os"            // only use proc information, nothing that touches the file system.
+	"os" // only use proc information, nothing that touches the file system.
 	"os/signal"
 	"path/filepath" // only use name manipulation, nothing that touches the file system.
 	"sort"
@@ -502,7 +502,7 @@ func (d *DiskLog) JournalDecoder() (Decoder, error) {
 	if err != nil && err != io.EOF {
 		return nil, err
 	}
-	for i, name := range(names) {
+	for i, name := range names {
 		ts, err := TSFromName(name)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get timestamp from name %q: %v", name, err)

@@ -108,8 +108,8 @@ func TestTaskStore_Update(t *testing.T) {
 	if updated[0].OwnerID != ownerID {
 		t.Errorf("expected updated task to have owner ID %d, got %d", ownerID, updated[0].OwnerID)
 	}
-	if updated[0].AvailableTime - added[0].AvailableTime != 60000 {
-		t.Errorf("expected updated task to expire 1 minute later than before, but got a difference of %d", updated[0].AvailableTime - added[0].AvailableTime)
+	if updated[0].AvailableTime-added[0].AvailableTime != 60000 {
+		t.Errorf("expected updated task to expire 1 minute later than before, but got a difference of %d", updated[0].AvailableTime-added[0].AvailableTime)
 	}
 	// Task is now owned, so it should not come back if we disallow owned tasks in a group listing.
 	g1Available := store.ListGroup("g1", 0, false)
@@ -127,16 +127,16 @@ func TestTaskStore_Update(t *testing.T) {
 	if err != nil {
 		t.Fatalf("couldn't update future task: %v", err)
 	}
-	if updated2[0].AvailableTime - updated[0].AvailableTime != 1000 {
-		t.Errorf("expected 1-second increase in available time, got difference of %d milliseconds", updated2[0].AvailableTime - updated[0].AvailableTime)
+	if updated2[0].AvailableTime-updated[0].AvailableTime != 1000 {
+		t.Errorf("expected 1-second increase in available time, got difference of %d milliseconds", updated2[0].AvailableTime-updated[0].AvailableTime)
 	}
 
 	// But another owner should not be able to touch it.
 	t0 = updated2[0].Copy()
 	t0.AvailableTime += 2000
-	_, err = store.Update(ownerID + 1, nil, []*Task{t0}, nil, nil)
+	_, err = store.Update(ownerID+1, nil, []*Task{t0}, nil, nil)
 	if err == nil {
-		t.Fatalf("owner %d should not succeed in updated task owned by %d", ownerID + 1, ownerID)
+		t.Fatalf("owner %d should not succeed in updated task owned by %d", ownerID+1, ownerID)
 	}
 	uerr, ok := err.(UpdateError)
 	if !ok {
@@ -145,7 +145,7 @@ func TestTaskStore_Update(t *testing.T) {
 	if len(uerr.Errors) != 1 {
 		t.Errorf("expected 1 error in UpdateError list, got %d", len(uerr.Errors))
 	}
-	if !strings.Contains(uerr.Errors[0].Error(), fmt.Sprintf("owned by %d, cannot be changed by %d", ownerID, ownerID + 1)) {
+	if !strings.Contains(uerr.Errors[0].Error(), fmt.Sprintf("owned by %d, cannot be changed by %d", ownerID, ownerID+1)) {
 		t.Errorf("expected ownership error, got %v", uerr.Errors)
 	}
 
