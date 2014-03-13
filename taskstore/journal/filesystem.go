@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -30,6 +32,7 @@ type FS interface {
 	Open(name string) (File, error)
 	Rename(oldname, newname string) error
 	Remove(name string) error
+	Lock(name string) error
 	Stat(name string) (os.FileInfo, error)
 	FindMatching(glob string) ([]string, error)
 }
@@ -55,6 +58,21 @@ func (OSFS) Rename(oldname, newname string) error {
 
 func (OSFS) Remove(name string) error {
 	return os.Remove(name)
+}
+
+func (OSFS) Lock(name string) error {
+	f, err := os.OpenFile(name, os.O_WRONLY | os.O_EXCL | os.O_CREATE, 0660)
+	if err != nil {
+		return err
+	}
+	// non-blocking exclusive lock
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX | syscall.LOCK_NB)
+	if err != nil {
+		os.Remove(name)
+		return err
+	}
+	f.WriteString(fmt.Sprintf("%d\n", os.Getpid()))
+	return nil
 }
 
 func (OSFS) Stat(name string) (os.FileInfo, error) {
@@ -114,6 +132,7 @@ func (fi *memFileInfo) Sys() interface{} {
 }
 
 type MemFS struct {
+	sync.Mutex
 	files map[string]*memFile
 }
 
@@ -163,6 +182,17 @@ func (m *MemFS) Rename(oldname, newname string) error {
 
 func (m *MemFS) Remove(name string) error {
 	delete(m.files, name)
+	return nil
+}
+
+func (m *MemFS) Lock(name string) error {
+	m.Mutex.Lock()
+	defer m.Mutex.Unlock()
+
+	if _, ok := m.files[name]; ok {
+		return os.ErrExist
+	}
+	m.Create(name)
 	return nil
 }
 

@@ -20,10 +20,12 @@ import (
 	"io"
 	"log"
 	"os"            // only use proc information, nothing that touches the file system.
+	"os/signal"
 	"path/filepath" // only use name manipulation, nothing that touches the file system.
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -83,6 +85,23 @@ func NewDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 		quit: make(chan bool, 1),
 		fs:   fs,
 	}
+
+	lockname := filepath.Join(dir, "lock")
+
+	// This should protect against basic oopses on a single machine, but is not
+	// necessarily reliable. To really be reliable over a network, a consensus
+	// protocol is usually needed to ensure exclusivity.
+	err := d.fs.Lock(lockname)
+	if err != nil {
+		panic(fmt.Sprintf("cannot open journal, failed to lock %q: %v", lockname, err))
+	}
+	sigchan := make(chan os.Signal, 1)
+	go func() {
+		<-sigchan
+		d.fs.Remove(lockname)
+		os.Exit(1)
+	}()
+	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGKILL)
 
 	// We *always* open a new log, even if there was one open when we last terminated.
 	// This allows us to ignore any corrupt records at the end of the old one
