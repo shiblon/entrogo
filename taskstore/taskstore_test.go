@@ -17,12 +17,67 @@ package taskstore
 
 import (
 	"fmt"
+	"math/rand"
+	"os"
 	"sort"
 	"strings"
 	"testing"
 
 	"code.google.com/p/entrogo/taskstore/journal"
 )
+
+func ExampleTaskStore() {
+	// The task store is only the storage portion of a task queue. If you wish
+	// to implement a service, you can easily do so using the primitives
+	// provided. This example should give an idea of how you might do that.
+
+	// To create a task store, specify a journal implementation. This
+	// particular implementation will attempt to lock a file in the specified
+	// directory and will panic if it cannot. It is not a guarantee against
+	// simultaneous unsafe access in a networked environment, however. For that
+	// a consensus protocol or something similar is recommended, implemented at
+	// the service level.
+	jr, err := journal.NewDiskLog("/tmp/taskjournal")
+	if err != nil {
+		panic(fmt.Sprintf("could not create journal: %v", err))
+	}
+
+	// Then create the task store itself. You can create a "strict" store,
+	// which requires that all transactions be flushed to the journal before
+	// being committed to memory (and results returned), or "opportunistic",
+	// which commits to memory and returns while letting journaling happen in
+	// the background. If task execution is idempotent and it is always obvious
+	// when to retry, you can get a speed benefit from opportunistic
+	// journaling.
+	store := NewStrict(jr)
+
+	// To put a task into the store, call Update with the "add" parameter:
+	add := []*Task{
+		NewTask("groupname", "task info, any string"),
+	}
+
+	// Every user of the task store needs a unique "OwnerID". When implementing
+	// this as a service, the client library would likely assign this at
+	// startup, so each process gets its own (and cannot change it). This is
+	// one example of how to create an Owner ID.
+	clientID := int32(rand.Int() ^ os.Getpid())
+
+	// Request an update. Here you can add, modify, and delete multiple tasks
+	// simultaneously. You can also specify a set of task IDs that must be
+	// present (but will not be modified) for this operation to succeed.
+	results, err := store.Update(clientID, add, nil, nil, nil)
+
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	// If successful, "results" will contain all of the newly-created tasks.
+	// Note that even a task modification is relaly a task creation: it deletes
+	// the old task and creates a new task with a new ID. IDs are guarnteed to
+	// increase monotonically.
+	fmt.Println(results)
+}
 
 func TestTaskStore_Update(t *testing.T) {
 	fs := journal.NewMemFS("/myfs")

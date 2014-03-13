@@ -86,22 +86,11 @@ func NewDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 		fs:   fs,
 	}
 
-	lockname := filepath.Join(dir, "lock")
-
-	// This should protect against basic oopses on a single machine, but is not
-	// necessarily reliable. To really be reliable over a network, a consensus
-	// protocol is usually needed to ensure exclusivity.
-	err := d.fs.Lock(lockname)
-	if err != nil {
-		panic(fmt.Sprintf("cannot open journal, failed to lock %q: %v", lockname, err))
-	}
-	sigchan := make(chan os.Signal, 1)
-	go func() {
-		<-sigchan
-		d.fs.Remove(lockname)
-		os.Exit(1)
-	}()
-	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGKILL)
+	// Make an attempt at advising other processes not to access this journal.
+	// Note that it is an incomplete attempt, particularly for networked
+	// filesystems over NFS. If your filesystem supports true locking, you can
+	// provide your own FS implementation and override the FS.Lock function.
+	d.mustLock()
 
 	// We *always* open a new log, even if there was one open when we last terminated.
 	// This allows us to ignore any corrupt records at the end of the old one
@@ -124,6 +113,25 @@ func NewDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 		}
 	}()
 	return d, nil
+}
+
+func (d *DiskLog) mustLock() {
+	lockname := filepath.Join(d.dir, "lock")
+
+	// This should protect against basic oopses on a single machine, but is not
+	// necessarily reliable. To really be reliable over a network, a consensus
+	// protocol is usually needed to ensure exclusivity.
+	err := d.fs.Lock(lockname)
+	if err != nil {
+		panic(fmt.Sprintf("cannot open journal, failed to lock %q: %v", lockname, err))
+	}
+	sigchan := make(chan os.Signal, 1)
+	go func() {
+		<-sigchan
+		d.fs.Remove(lockname)
+		os.Exit(1)
+	}()
+	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGKILL)
 }
 
 // addRecord attempts to append the record to the end of the file, using gob encoding.
