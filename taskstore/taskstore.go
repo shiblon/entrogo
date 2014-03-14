@@ -558,7 +558,7 @@ func (t *TaskStore) claim(claim reqClaim) ([]*Task, error) {
 // requester, and tasks to be added, changed, and deleted can be specified. If
 // dep is specified, it is a list of task IDs that must be present for the
 // update to succeed.
-func (t *TaskStore) Update(owner int32, add, change []*Task, del []int64, dep []int64) ([]*Task, error) {
+func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) ([]*Task, error) {
 	up := reqUpdate{
 		OwnerID:      owner,
 		Changes:      make([]*Task, 0, len(add)+len(change)+len(del)),
