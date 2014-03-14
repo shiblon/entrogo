@@ -241,18 +241,17 @@ func (t *TaskStore) nextID() int64 {
 
 // snapshot takes care of using the journaler to create a snapshot.
 func (t *TaskStore) snapshot() error {
-	// first we make sure that the cache is flushed. We're still synchronous,
+	// First we make sure that the cache is flushed. We're still synchronous,
 	// because we're in the main handler and no goroutines have been created.
-
 	t.depleteCache(0)
 	if len(t.tmpTasks) + len(t.delTasks) > 0 {
 		panic("depleted cache in synchronous code, but not depleted. should never happen.")
 	}
 
+	// Now start snapshotting to the journaler.
 	data := make(chan interface{}, 1)
 	done := make(chan error, 1)
 	snapresp := make(chan error, 1)
-
 	go func() {
 		done <- t.journaler.StartSnapshot(data, snapresp)
 	}()
@@ -260,7 +259,7 @@ func (t *TaskStore) snapshot() error {
 	go func() {
 		var err error
 		defer func() {
-			// Notify completion of this asynchronous snapshot.
+			// Notify of completion of this asynchronous snapshot.
 			t.snapshotDoneChan <- err
 		}()
 		defer close(data)
