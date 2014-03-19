@@ -406,11 +406,12 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 
 	// Check that the requested operation is allowed.
 	// This means:
-	// - Insertions are always allowed
-	// - Updates require that the task ID exists, and that the task is either
-	// 		unowned or owned by the requester.
-	// - Deletions require that the task ID exists.
+	// - All referenced task IDs must exist: dependencies, deletions, and updates.
+	// - Updates and deletions must be modifying an unowned task, or a task owned by the requester.
+	// - Additions are always OK.
+	// - All of the above must be true *simultaneously* for any operation to be done.
 	for i, task := range up.Changes {
+		// Additions always OK.
 		if task.ID <= 0 && len(uerr.Errors) == 0 {
 			if task.Group == "" {
 				uerr.Errors = append(uerr.Errors, fmt.Errorf("adding task with empty task group not allowed"))
@@ -419,6 +420,7 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 			transaction[i] = updateDiff{0, task.Copy()}
 			continue
 		}
+		// Everything else has to exist first.
 		ot := t.getTask(task.ID)
 		if ot == nil {
 			uerr.Errors = append(uerr.Errors, fmt.Errorf("task %d not found", task.ID))
@@ -429,10 +431,11 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 			uerr.Errors = append(uerr.Errors, err)
 			continue
 		}
-		// Available time < 0 means delete this task.
 		if task.AvailableTime < 0 {
+			// Available time < 0 means delete this task.
 			transaction[i] = updateDiff{task.ID, nil}
 		} else {
+			// Otherwise just update it.
 			transaction[i] = updateDiff{task.ID, task.Copy()}
 		}
 	}
@@ -521,11 +524,11 @@ func (t *TaskStore) claim(claim reqClaim) ([]*Task, error) {
 	for _, name := range claim.Names {
 		h := t.heaps[name]
 		if h == nil || h.Len() == 0 {
-			return nil, fmt.Errorf("no tasks in group %q to claim", name)
+			return nil, nil // not an error, just no tasks available
 		}
 		task := h.Peek().(*Task)
 		if task.AvailableTime > now {
-			return nil, fmt.Errorf("no unowned tasks in group %q to claim", name)
+			return nil, nil // not an error, just no unowned tasks available
 		}
 	}
 

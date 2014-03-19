@@ -20,8 +20,10 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"code.google.com/p/entrogo/taskstore/journal"
 )
@@ -264,4 +266,214 @@ func eqStrings(l1, l2 []string) bool {
 		}
 	}
 	return true
+}
+
+// ExampleTaskStore_MapReduce tests the taskstore by setting up a fake pipeline and
+// working it for a while, just to make sure that things don't really hang up.
+func ExampleTaskStore_MapReduce() {
+	// We test the taskstore by creating a simple mapreduce pipeline.
+	// This produces a word frequency histogram for the text below by doing the
+	// following:
+	//
+	// - The lines of text create tasks, one for each line.
+	// - Map goroutines consume those tasks, producing reduce groups.
+	// - When all mapping is finished, one reduce task per group is created.
+	// - Reduce goroutines consume reduce tasks, indicating which group to pull tasks from.
+	// - They hold onto their reduce token, and so long as they own it, they
+	// 	 perform reduce tasks and, when finished, push results into the result group.
+	// - The results are finally read into a histogram.
+
+	type Data struct {
+		Key   string
+		Count int
+	}
+
+	lines := []string{
+		"The fundamental approach to parallel computing in a mapreduce environment",
+		"is to think of computation as a multi-stage process, with a communication",
+		"step in the middle. Input data is consumed in chunks by mappers. These",
+		"mappers produce key/value pairs from their own data, and they are designed",
+		"to do their work in isolation. Their computation does not depend on the",
+		"computation of any of their peers. These key/value outputs are then grouped",
+		"by key, and the reduce phase begins. All values corresponding to a",
+		"particular key are processed together, producing a single summary output",
+		"for that key. One example of a mapreduce is word counting. The input",
+		"is a set of documents, the mappers produce word/count pairs, and the",
+		"reducers compute the sum of all counts for each word, producing a word",
+		"frequency histogram.",
+	}
+
+	mainID := rand.Int31()
+
+	// Create a taskstore backed by a fake in-memory journal.
+	fs := journal.NewMemFS("/myfs")
+	jr, err := journal.NewDiskLogInjectFS("/myfs", fs)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create journal: %v", err))
+	}
+	store := NewStrict(jr)
+
+	// Insert text line tasks one at a time.
+	toAdd := make([]*Task, len(lines))
+	for i, line := range lines {
+		toAdd[i] = NewTask("map", line)
+	}
+	_, err = store.Update(mainID, toAdd, nil, nil, nil)
+	if err != nil {
+		panic(fmt.Sprintf("could not create task: %v", err))
+	}
+
+	// Expect to see one completion per line.
+	mapperDone := make(chan bool, len(lines))
+
+	// Start mapper workers.
+	for i := 0; i < 3; i++ {
+		go func() {
+			mapperID := rand.Int31()
+			for {
+				// Get a task for ten seconds.
+				claimed, err := store.Claim(mapperID, []string{"map"}, 10000)
+				if err != nil {
+					panic(fmt.Sprintf("error retrieving tasks: %v", err))
+				}
+				if claimed == nil {
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				maptask := claimed[0]
+				// Now we have a map task. Split the data into words and emit reduce tasks for them.
+				// The data is just a line from the text file.
+				words := strings.Split(maptask.Data, " ")
+				wm := make(map[string]int)
+				for _, word := range words {
+					word = strings.ToLower(word)
+					word = strings.TrimSuffix(word, ".")
+					word = strings.TrimSuffix(word, ",")
+					wm[strings.ToLower(word)]++
+				}
+				// One task per word, each in its own group (the word's group)
+				reduceTasks := make([]*Task, 0)
+				for word, count := range wm {
+					group := fmt.Sprintf("reduceword %s", word)
+					reduceTasks = append(reduceTasks, NewTask(group, fmt.Sprintf("%d", count)))
+				}
+				delTasks := []int64{maptask.ID}
+				_, err = store.Update(mapperID, reduceTasks, nil, delTasks, nil)
+				if err != nil {
+					panic(fmt.Sprintf("mapper failed: %v", err))
+				}
+
+				mapperDone <- true
+			}
+		}()
+	}
+
+	for i := 0; i < len(lines); i++ {
+		<-mapperDone
+	}
+
+	// Now do reductions. To do this we list all of the reduceword groups and
+	// create a task for each, then we start the reducers.
+	//
+	// Note that there are almost certainly better ways to do this, but this is
+	// simple and good for demonstration purposes.
+	//
+	// Why create a task? Because tasks, unlike groups, can be exclusively
+	// owned and used as dependencies in updates.
+	groups := store.Groups()
+	reduceTasks := make([]*Task, 0)
+	for _, g := range groups {
+		if !strings.HasPrefix(g, "reduceword ") {
+			continue
+		}
+		// Add the group name as a reduce task. A reducer will pick it up and
+		// consume all tasks in the group.
+		reduceTasks = append(reduceTasks, NewTask("reduce", g))
+	}
+	_, err = store.Update(mainID, reduceTasks, nil, nil, nil)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create reduce tasks: %v", err))
+	}
+
+	reducerDone := make(chan bool, len(reduceTasks))
+
+	// Finally start the reducers.
+	for i := 0; i < 3; i++ {
+		go func() {
+			reducerID := rand.Int31()
+			for {
+				claimed, err := store.Claim(reducerID, []string{"reduce"}, 30000)
+				if err != nil {
+					panic(fmt.Sprintf("failed to get reduce task: %v", err))
+				}
+				if claimed == nil {
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				grouptask := claimed[0]
+				word := strings.SplitN(grouptask.Data, " ", 2)[1]
+
+				// No need to claim all of these tasks, just list them - the
+				// main task is enough for claims, since we'll depend on it
+				// before deleting these guys.
+				tasks := store.ListGroup(grouptask.Data, 0, true)
+				delTasks := make([]int64, len(tasks) + 1)
+				sum := 0
+				for i, task := range tasks {
+					delTasks[i] = task.ID
+					val, err := strconv.Atoi(task.Data)
+					if err != nil {
+						fmt.Printf("oops - weird value in task: %v\n", task)
+						continue
+					}
+					sum += val
+				}
+				delTasks[len(delTasks)-1] = grouptask.ID
+				outputTask := NewTask("output", fmt.Sprintf("%04d %s", sum, word))
+
+				// Now we delete all of the reduce tasks, including the one
+				// that we own that points to the group, and add an output
+				// task.
+				_, err = store.Update(reducerID, []*Task{outputTask}, nil, delTasks, nil)
+				if err != nil {
+					panic(fmt.Sprintf("failed to delete reduce tasks and create output: %v", err))
+				}
+
+				reducerDone <- true
+			}
+		}()
+	}
+
+	for i := 0; i < len(reduceTasks); i++ {
+		<-reducerDone
+	}
+
+	// And now we have the finished output in the task store.
+	outputTasks := store.ListGroup("output", 0, false)
+	freqs := make([]string, len(outputTasks))
+	for i, t := range outputTasks {
+		freqs[i] = t.Data
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(freqs)))
+
+	max := 10
+	if max > len(freqs) {
+		max = len(freqs)
+	}
+	for i := 0; i < max; i++ {
+		fmt.Println(freqs[i])
+	}
+
+	// Output:
+	//
+	// 0008 the
+	// 0008 a
+	// 0006 of
+	// 0004 to
+	// 0004 their
+	// 0004 is
+	// 0004 in
+	// 0003 word
+	// 0003 mappers
+	// 0003 key
 }
