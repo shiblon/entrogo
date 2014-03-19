@@ -268,9 +268,9 @@ func eqStrings(l1, l2 []string) bool {
 	return true
 }
 
-// ExampleTaskStore_MapReduce tests the taskstore by setting up a fake pipeline and
+// ExampleTaskStore_mapReduce tests the taskstore by setting up a fake pipeline and
 // working it for a while, just to make sure that things don't really hang up.
-func ExampleTaskStore_MapReduce() {
+func ExampleTaskStore_mapReduce() {
 	// We test the taskstore by creating a simple mapreduce pipeline.
 	// This produces a word frequency histogram for the text below by doing the
 	// following:
