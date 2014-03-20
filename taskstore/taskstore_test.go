@@ -471,12 +471,11 @@ func ExampleTaskStore_mapReduce() {
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(freqs)))
 
-	max := 10
-	if max > len(freqs) {
-		max = len(freqs)
-	}
-	for i := 0; i < max; i++ {
-		fmt.Println(freqs[i])
+	for i, f := range freqs {
+		if i >= 10 {
+			break
+		}
+		fmt.Println(f)
 	}
 
 	// Output:
