@@ -244,7 +244,7 @@ func (t *TaskStore) snapshot() error {
 	// First we make sure that the cache is flushed. We're still synchronous,
 	// because we're in the main handler and no goroutines have been created.
 	t.depleteCache(0)
-	if len(t.tmpTasks) + len(t.delTasks) > 0 {
+	if len(t.tmpTasks)+len(t.delTasks) > 0 {
 		panic("depleted cache in synchronous code, but not depleted. should never happen.")
 	}
 

@@ -317,7 +317,6 @@ func ExampleTaskStore_mapReduce() {
 	}
 	store := NewStrict(jr)
 
-
 	// And add all of the input lines.
 	toAdd := make([]*Task, len(lines))
 	for i, line := range lines {
@@ -380,7 +379,7 @@ func ExampleTaskStore_mapReduce() {
 		if len(tasks) == 0 {
 			break
 		}
-		time.Sleep(time.Duration(rand.Intn(maxSleepMillis) + 1) * time.Millisecond)
+		time.Sleep(time.Duration(rand.Intn(maxSleepMillis)+1) * time.Millisecond)
 	}
 
 	// Now do reductions. To do this we list all of the reduceword groups and
@@ -427,7 +426,7 @@ func ExampleTaskStore_mapReduce() {
 				// main task is enough for claims, since we'll depend on it
 				// before deleting these guys.
 				tasks := store.ListGroup(grouptask.Data, 0, true)
-				delTasks := make([]int64, len(tasks) + 1)
+				delTasks := make([]int64, len(tasks)+1)
 				sum := 0
 				for i, task := range tasks {
 					delTasks[i] = task.ID
@@ -461,7 +460,7 @@ func ExampleTaskStore_mapReduce() {
 		if len(tasks) == 0 {
 			break
 		}
-		time.Sleep(time.Duration(rand.Intn(maxSleepMillis) + 1) * time.Millisecond)
+		time.Sleep(time.Duration(rand.Intn(maxSleepMillis)+1) * time.Millisecond)
 	}
 
 	// And now we have the finished output in the task store.
