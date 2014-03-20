@@ -303,6 +303,10 @@ func ExampleTaskStore_mapReduce() {
 		"frequency histogram.",
 	}
 
+	numMappers := 3
+	numReducers := 3
+	maxSleepMillis := 500
+
 	mainID := rand.Int31()
 
 	// Create a taskstore backed by a fake in-memory journal.
@@ -313,21 +317,21 @@ func ExampleTaskStore_mapReduce() {
 	}
 	store := NewStrict(jr)
 
-	// Insert text line tasks one at a time.
+
+	// And add all of the input lines.
 	toAdd := make([]*Task, len(lines))
 	for i, line := range lines {
 		toAdd[i] = NewTask("map", line)
 	}
+
+	// Do the actual update.
 	_, err = store.Update(mainID, toAdd, nil, nil, nil)
 	if err != nil {
 		panic(fmt.Sprintf("could not create task: %v", err))
 	}
 
-	// Expect to see one completion per line.
-	mapperDone := make(chan bool, len(lines))
-
 	// Start mapper workers.
-	for i := 0; i < 3; i++ {
+	for i := 0; i < numMappers; i++ {
 		go func() {
 			mapperID := rand.Int31()
 			for {
@@ -337,7 +341,7 @@ func ExampleTaskStore_mapReduce() {
 					panic(fmt.Sprintf("error retrieving tasks: %v", err))
 				}
 				if claimed == nil {
-					time.Sleep(5 * time.Second)
+					time.Sleep(time.Duration(maxSleepMillis) * time.Millisecond)
 					continue
 				}
 				maptask := claimed[0]
@@ -352,6 +356,10 @@ func ExampleTaskStore_mapReduce() {
 					wm[strings.ToLower(word)]++
 				}
 				// One task per word, each in its own group (the word's group)
+				// This could just as easily be something in the filesystem,
+				// and the reduce tasks would just point to them, but we're
+				// using the task store because our data is small and because
+				// we can.
 				reduceTasks := make([]*Task, 0)
 				for word, count := range wm {
 					group := fmt.Sprintf("reduceword %s", word)
@@ -362,14 +370,17 @@ func ExampleTaskStore_mapReduce() {
 				if err != nil {
 					panic(fmt.Sprintf("mapper failed: %v", err))
 				}
-
-				mapperDone <- true
 			}
 		}()
 	}
 
-	for i := 0; i < len(lines); i++ {
-		<-mapperDone
+	// Just wait for all map tasks to be deleted.
+	for {
+		tasks := store.ListGroup("map", 1, true)
+		if len(tasks) == 0 {
+			break
+		}
+		time.Sleep(time.Duration(rand.Intn(maxSleepMillis) + 1) * time.Millisecond)
 	}
 
 	// Now do reductions. To do this we list all of the reduceword groups and
@@ -381,7 +392,7 @@ func ExampleTaskStore_mapReduce() {
 	// Why create a task? Because tasks, unlike groups, can be exclusively
 	// owned and used as dependencies in updates.
 	groups := store.Groups()
-	reduceTasks := make([]*Task, 0)
+	reduceTasks := make([]*Task, 0, len(groups))
 	for _, g := range groups {
 		if !strings.HasPrefix(g, "reduceword ") {
 			continue
@@ -390,15 +401,14 @@ func ExampleTaskStore_mapReduce() {
 		// consume all tasks in the group.
 		reduceTasks = append(reduceTasks, NewTask("reduce", g))
 	}
+
 	_, err = store.Update(mainID, reduceTasks, nil, nil, nil)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create reduce tasks: %v", err))
 	}
 
-	reducerDone := make(chan bool, len(reduceTasks))
-
 	// Finally start the reducers.
-	for i := 0; i < 3; i++ {
+	for i := 0; i < numReducers; i++ {
 		go func() {
 			reducerID := rand.Int31()
 			for {
@@ -407,7 +417,7 @@ func ExampleTaskStore_mapReduce() {
 					panic(fmt.Sprintf("failed to get reduce task: %v", err))
 				}
 				if claimed == nil {
-					time.Sleep(5 * time.Second)
+					time.Sleep(time.Duration(maxSleepMillis) * time.Millisecond)
 					continue
 				}
 				grouptask := claimed[0]
@@ -439,13 +449,19 @@ func ExampleTaskStore_mapReduce() {
 					panic(fmt.Sprintf("failed to delete reduce tasks and create output: %v", err))
 				}
 
-				reducerDone <- true
+				// No need to signal anything - we just deleted the reduce
+				// task. The main process can look for no tasks remaining.
 			}
 		}()
 	}
 
-	for i := 0; i < len(reduceTasks); i++ {
-		<-reducerDone
+	// Just look for all reduce tasks to be finished.
+	for {
+		tasks := store.ListGroup("reduce", 1, true)
+		if len(tasks) == 0 {
+			break
+		}
+		time.Sleep(time.Duration(rand.Intn(maxSleepMillis) + 1) * time.Millisecond)
 	}
 
 	// And now we have the finished output in the task store.
