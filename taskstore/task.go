@@ -1,6 +1,5 @@
 // Copyright 2014 Chris Monson <shiblon@gmail.com>
 //
-//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -36,11 +35,11 @@ type Task struct {
 	// Data holds the data for this task.
 	// If you want raw bytes, you'll need to encode them
 	// somehow.
-	Data string
+	Data []byte
 }
 
 // NewTask creates a new task for this owner and group.
-func NewTask(group, data string) *Task {
+func NewTask(group string, data []byte) *Task {
 	return &Task{
 		Group: group,
 		Data:  data,
@@ -55,7 +54,7 @@ func (t *Task) Copy() *Task {
 
 // String formats this task into a nice string value.
 func (t *Task) String() string {
-	return fmt.Sprintf("Task %d: g=%q o=%d t=%d d=%#v", t.ID, t.Group, t.OwnerID, t.AvailableTime, t.Data)
+	return fmt.Sprintf("Task %d: g=%q o=%d t=%d d=%v", t.ID, t.Group, t.OwnerID, t.AvailableTime, t.Data)
 }
 
 // Priority returns an integer that can be used for heap ordering.
