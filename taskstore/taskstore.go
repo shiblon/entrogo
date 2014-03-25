@@ -1,6 +1,5 @@
 // Copyright 2014 Chris Monson <shiblon@gmail.com>
 //
-//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -390,19 +389,17 @@ func (t *TaskStore) heapPush(task *Task) {
 	h.Push(task)
 }
 
+func testCanModify(now int64, clientID int32, task *Task) error {
+	if task.AvailableTime > now && clientID != task.OwnerID {
+		return fmt.Errorf("task %d owned by %d, cannot be changed by %d", task.ID, task.OwnerID, clientID)
+	}
+	return nil
+}
+
 // update performs (or attempts to perform) a batch task update.
 func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	uerr := UpdateError{}
-	transaction := make([]updateDiff, len(up.Changes))
-
-	// Check that the dependencies are all around.
-	for _, id := range up.Dependencies {
-		if task := t.getTask(id); task == nil {
-			uerr.Errors = append(uerr.Errors, fmt.Errorf("unmet dependency: task ID %d not present", id))
-		}
-	}
-
-	now := NowMillis()
+	transaction := make([]updateDiff, len(up.Deletes)+len(up.Changes))
 
 	// Check that the requested operation is allowed.
 	// This means:
@@ -410,7 +407,35 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	// - Updates and deletions must be modifying an unowned task, or a task owned by the requester.
 	// - Additions are always OK.
 	// - All of the above must be true *simultaneously* for any operation to be done.
-	for i, task := range up.Changes {
+
+	// Check that the dependencies are all around.
+	for _, id := range up.Depends {
+		if task := t.getTask(id); task == nil {
+			uerr.Errors = append(uerr.Errors, fmt.Errorf("unmet dependency: task ID %d not present", id))
+		}
+	}
+
+	now := NowMillis()
+
+	// Check that the deletions exist and are either owned by this client or expired, as well.
+	// Also create transactions for these deletions.
+	for i, id := range up.Deletes {
+		task := t.getTask(id)
+		if task == nil {
+			uerr.Errors = append(uerr.Errors, fmt.Errorf("missing deletion: task ID %d not present", id))
+			continue
+		}
+		if err := testCanModify(now, up.OwnerID, task); err != nil {
+			uerr.Errors = append(uerr.Errors, err)
+			continue
+		}
+		// Make a deletion transaction.
+		transaction[i] = updateDiff{id, nil}
+	}
+
+	for chgi, task := range up.Changes {
+		i := chgi + len(up.Deletes)
+
 		// Additions always OK.
 		if task.ID <= 0 && len(uerr.Errors) == 0 {
 			if task.Group == "" {
@@ -426,18 +451,11 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 			uerr.Errors = append(uerr.Errors, fmt.Errorf("task %d not found", task.ID))
 			continue
 		}
-		if ot.AvailableTime > now && ot.OwnerID != up.OwnerID {
-			err := fmt.Errorf("task %d owned by %d, cannot be changed by %d", ot.ID, ot.OwnerID, up.OwnerID)
+		if err := testCanModify(now, up.OwnerID, ot); err != nil {
 			uerr.Errors = append(uerr.Errors, err)
 			continue
 		}
-		if task.AvailableTime < 0 {
-			// Available time < 0 means delete this task.
-			transaction[i] = updateDiff{task.ID, nil}
-		} else {
-			// Otherwise just update it.
-			transaction[i] = updateDiff{task.ID, task.Copy()}
-		}
+		transaction[i] = updateDiff{task.ID, task.Copy()}
 	}
 
 	if len(uerr.Errors) > 0 {
@@ -454,9 +472,10 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 			continue
 		}
 		// Assign IDs to all new tasks, and assign "now" to any that have no availability set.
+		// Negative available time means "add the absolute value of this to now".
 		nt.ID = t.nextID()
-		if nt.AvailableTime == 0 {
-			nt.AvailableTime = now
+		if nt.AvailableTime <= 0 {
+			nt.AvailableTime = now - nt.AvailableTime
 		}
 	}
 
@@ -505,56 +524,48 @@ func (t *TaskStore) groups() []string {
 	return groups
 }
 
-func (t *TaskStore) claim(claim reqClaim) ([]*Task, error) {
+func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 	now := NowMillis()
-	nmap := make(map[string]bool)
-	for _, name := range claim.Names {
-		if _, ok := nmap[name]; ok {
-			return nil, fmt.Errorf("duplicate name %q requested claiming tasks from groups %v", name, claim.Names)
-		}
-		nmap[name] = true
-	}
 
 	duration := claim.Duration
 	if duration < 0 {
 		duration = 0
 	}
 
-	// Check that the tasks exist and are ready to be owned.
-	for _, name := range claim.Names {
-		h := t.heaps[name]
-		if h == nil || h.Len() == 0 {
-			return nil, nil // not an error, just no tasks available
-		}
-		task := h.Peek().(*Task)
-		if task.AvailableTime > now {
-			return nil, nil // not an error, just no unowned tasks available
-		}
+	// Check that there are tasks ready to be claimed.
+	h, ok := t.heaps[claim.Group]
+	if !ok || h == nil || h.Len() == 0 {
+		return nil, nil // not an error, just no tasks available
+	}
+	if task := h.Peek().(*Task); task.AvailableTime > now {
+		return nil, nil // not an error, just no unowned tasks available
 	}
 
-	// We can proceed, so we create task updates randomly from every group.
-	tasks := make([]*Task, len(claim.Names))
-	for i, name := range claim.Names {
-		task := t.heaps[name].PopRandomConstrained(now).(*Task)
-		// Create a mutated task that shares data and ID with this one, and
-		// we'll request it to have these changes.
-		tasks[i] = &Task{
-			ID:            task.ID,
-			OwnerID:       claim.OwnerID,
-			Group:         name,
-			AvailableTime: now + duration,
-			Data:          task.Data,
-		}
+	// We can proceed, so we create a random task update from the available
+	// tasks.
+	task := t.heaps[claim.Group].PopRandomConstrained(now).(*Task).Copy()
+	// Create a mutated task that shares data and ID with this one, and
+	// we'll request it to have these changes.
+	reqtask := &Task{
+		ID:            task.ID,
+		OwnerID:       claim.OwnerID,
+		Group:         claim.Group,
+		AvailableTime: -duration,
+		Data:          task.Data,
 	}
 
 	// Because claiming involves setting the owner and a future availability,
 	// we update these acquired tasks.
 	up := reqUpdate{
-		OwnerID:      claim.OwnerID,
-		Changes:      tasks,
-		Dependencies: nil,
+		OwnerID: claim.OwnerID,
+		Changes: []*Task{reqtask},
+		Depends: claim.Depends,
 	}
-	return t.update(up)
+	tasks, err := t.update(up)
+	if err != nil {
+		return nil, err
+	}
+	return tasks[0], nil
 }
 
 // Update makes changes to the task store. The owner is the ID of the
@@ -563,9 +574,10 @@ func (t *TaskStore) claim(claim reqClaim) ([]*Task, error) {
 // update to succeed.
 func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) ([]*Task, error) {
 	up := reqUpdate{
-		OwnerID:      owner,
-		Changes:      make([]*Task, 0, len(add)+len(change)+len(del)),
-		Dependencies: dep,
+		OwnerID: owner,
+		Changes: make([]*Task, 0, len(add)+len(change)),
+		Deletes: del,
+		Depends: dep,
 	}
 
 	for _, task := range add {
@@ -585,11 +597,6 @@ func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) (
 			task.AvailableTime = 0 // no accidental deletions
 		}
 		up.Changes = append(up.Changes, task)
-	}
-
-	for _, id := range del {
-		// Create a deletion task.
-		up.Changes = append(up.Changes, &Task{ID: id, OwnerID: owner, AvailableTime: -1})
 	}
 
 	resp := t.sendRequest(up, t.updateChan)
@@ -617,18 +624,19 @@ func (t *TaskStore) Groups() []string {
 	return resp.Val.([]string)
 }
 
-// Claim attempts to find one random unowned task in each of the specified
-// group names and set the ownership to the specified owner. If successful, the
-// newly-owned tasks are returned with their AvailableTime set to now +
-// duration (in milliseconds).
-func (t *TaskStore) Claim(owner int32, names []string, duration int64) ([]*Task, error) {
+// Claim attempts to find one random unowned task in the specified group and
+// set the ownership to the specified owner. If successful, the newly-owned
+// tasks are returned with their AvailableTime set to now + duration (in
+// milliseconds).
+func (t *TaskStore) Claim(owner int32, group string, duration int64, depends []int64) (*Task, error) {
 	claim := reqClaim{
 		OwnerID:  owner,
-		Names:    names,
+		Group:    group,
 		Duration: duration,
+		Depends:  depends,
 	}
 	resp := t.sendRequest(claim, t.claimChan)
-	return resp.Val.([]*Task), resp.Err
+	return resp.Val.(*Task), resp.Err
 }
 
 // Snapshot tries to force a snapshot to start immediately. It only fails if
@@ -642,9 +650,10 @@ func (t *TaskStore) Snapshot() error {
 // set of tasks, including changes, deletions, and tasks on whose existence the
 // update depends.
 type reqUpdate struct {
-	OwnerID      int32
-	Changes      []*Task
-	Dependencies []int64
+	OwnerID int32
+	Changes []*Task
+	Deletes []int64
+	Depends []int64
 }
 
 // reqListGroup is a query for up to Limit tasks in the given group name. If <=
@@ -660,13 +669,17 @@ type reqClaim struct {
 	// The owner that is claiming the task.
 	OwnerID int32
 
-	// Names are the group names for which tasks should be claimed. If any of
-	// them does not have a claimable task, the entire operation fails.
-	Names []string
+	// The Group is the name of the group from which a task is to be claimed.
+	Group string
 
 	// Duration is in milliseconds. The task availability, if claimed, will
 	// become now + Duration.
 	Duration int64
+
+	// Depends tells us which tasks must exist for this procedure to succeed.
+	// This way you can turn task claiming on and off with separate signal
+	// tasks.
+	Depends []int64
 }
 
 // request wraps a query structure, and is used internally to handle the

@@ -1,6 +1,5 @@
 // Copyright 2014 Chris Monson <shiblon@gmail.com>
 //
-//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -55,7 +54,7 @@ func ExampleTaskStore() {
 
 	// To put a task into the store, call Update with the "add" parameter:
 	add := []*Task{
-		NewTask("groupname", "task info, any string"),
+		NewTask("groupname", []byte("task info, any string")),
 	}
 
 	// Every user of the task store needs a unique "OwnerID". When implementing
@@ -92,12 +91,12 @@ func TestTaskStore_Update(t *testing.T) {
 	var ownerID int32 = 11
 
 	tasks := []*Task{
-		NewTask("g1", "hello there"),
-		NewTask("g1", "hi"),
-		NewTask("g2", "10"),
-		NewTask("g2", "5"),
-		NewTask("g3", "-"),
-		NewTask("g3", "_"),
+		NewTask("g1", []byte("hello there")),
+		NewTask("g1", []byte("hi")),
+		NewTask("g2", []byte("10")),
+		NewTask("g2", []byte("5")),
+		NewTask("g3", []byte("-")),
+		NewTask("g3", []byte("_")),
 	}
 
 	added, err := store.Update(ownerID, tasks, nil, nil, nil)
@@ -124,7 +123,7 @@ func TestTaskStore_Update(t *testing.T) {
 		} else if nt.AvailableTime <= 0 {
 			t.Errorf("expected valid available time, got %d", nt.AvailableTime)
 		}
-		if nt.Data != task.Data {
+		if string(nt.Data) != string(task.Data) {
 			t.Errorf("expected task data to be %q, got %q", task.Data, nt.Data)
 		}
 	}
@@ -250,7 +249,7 @@ func TestTaskStore_Update(t *testing.T) {
 	}
 
 	for id, data := range expectedData {
-		if all[id].Data != data {
+		if string(all[id].Data) != string(data) {
 			t.Errorf("full dump: expected %q, got %q", data, all[id].Data)
 		}
 	}
@@ -320,7 +319,7 @@ func ExampleTaskStore_mapReduce() {
 	// And add all of the input lines.
 	toAdd := make([]*Task, len(lines))
 	for i, line := range lines {
-		toAdd[i] = NewTask("map", line)
+		toAdd[i] = NewTask("map", []byte(line))
 	}
 
 	// Do the actual update.
@@ -335,18 +334,17 @@ func ExampleTaskStore_mapReduce() {
 			mapperID := rand.Int31()
 			for {
 				// Get a task for ten seconds.
-				claimed, err := store.Claim(mapperID, []string{"map"}, 10000)
+				maptask, err := store.Claim(mapperID, "map", 10000, nil)
 				if err != nil {
 					panic(fmt.Sprintf("error retrieving tasks: %v", err))
 				}
-				if claimed == nil {
+				if maptask == nil {
 					time.Sleep(time.Duration(maxSleepMillis) * time.Millisecond)
 					continue
 				}
-				maptask := claimed[0]
 				// Now we have a map task. Split the data into words and emit reduce tasks for them.
 				// The data is just a line from the text file.
-				words := strings.Split(maptask.Data, " ")
+				words := strings.Split(string(maptask.Data), " ")
 				wm := make(map[string]int)
 				for _, word := range words {
 					word = strings.ToLower(word)
@@ -362,7 +360,7 @@ func ExampleTaskStore_mapReduce() {
 				reduceTasks := make([]*Task, 0)
 				for word, count := range wm {
 					group := fmt.Sprintf("reduceword %s", word)
-					reduceTasks = append(reduceTasks, NewTask(group, fmt.Sprintf("%d", count)))
+					reduceTasks = append(reduceTasks, NewTask(group, []byte(fmt.Sprintf("%d", count))))
 				}
 				delTasks := []int64{maptask.ID}
 				_, err = store.Update(mapperID, reduceTasks, nil, delTasks, nil)
@@ -398,7 +396,7 @@ func ExampleTaskStore_mapReduce() {
 		}
 		// Add the group name as a reduce task. A reducer will pick it up and
 		// consume all tasks in the group.
-		reduceTasks = append(reduceTasks, NewTask("reduce", g))
+		reduceTasks = append(reduceTasks, NewTask("reduce", []byte(g)))
 	}
 
 	_, err = store.Update(mainID, reduceTasks, nil, nil, nil)
@@ -411,26 +409,26 @@ func ExampleTaskStore_mapReduce() {
 		go func() {
 			reducerID := rand.Int31()
 			for {
-				claimed, err := store.Claim(reducerID, []string{"reduce"}, 30000)
+				grouptask, err := store.Claim(reducerID, "reduce", 30000, nil)
 				if err != nil {
 					panic(fmt.Sprintf("failed to get reduce task: %v", err))
 				}
-				if claimed == nil {
+				if grouptask == nil {
 					time.Sleep(time.Duration(maxSleepMillis) * time.Millisecond)
 					continue
 				}
-				grouptask := claimed[0]
-				word := strings.SplitN(grouptask.Data, " ", 2)[1]
+				gtdata := string(grouptask.Data)
+				word := strings.SplitN(gtdata, " ", 2)[1]
 
 				// No need to claim all of these tasks, just list them - the
 				// main task is enough for claims, since we'll depend on it
 				// before deleting these guys.
-				tasks := store.ListGroup(grouptask.Data, 0, true)
+				tasks := store.ListGroup(gtdata, 0, true)
 				delTasks := make([]int64, len(tasks)+1)
 				sum := 0
 				for i, task := range tasks {
 					delTasks[i] = task.ID
-					val, err := strconv.Atoi(task.Data)
+					val, err := strconv.Atoi(string(task.Data))
 					if err != nil {
 						fmt.Printf("oops - weird value in task: %v\n", task)
 						continue
@@ -438,7 +436,7 @@ func ExampleTaskStore_mapReduce() {
 					sum += val
 				}
 				delTasks[len(delTasks)-1] = grouptask.ID
-				outputTask := NewTask("output", fmt.Sprintf("%04d %s", sum, word))
+				outputTask := NewTask("output", []byte(fmt.Sprintf("%04d %s", sum, word)))
 
 				// Now we delete all of the reduce tasks, including the one
 				// that we own that points to the group, and add an output
@@ -467,7 +465,7 @@ func ExampleTaskStore_mapReduce() {
 	outputTasks := store.ListGroup("output", 0, false)
 	freqs := make([]string, len(outputTasks))
 	for i, t := range outputTasks {
-		freqs[i] = t.Data
+		freqs[i] = string(t.Data)
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(freqs)))
 
