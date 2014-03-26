@@ -267,6 +267,11 @@ func eqStrings(l1, l2 []string) bool {
 	return true
 }
 
+// ExampleTaskStore_tasks demonstrates the use of getting tasks by id.
+func ExampleTaskStore_tasks() {
+
+}
+
 // ExampleTaskStore_mapReduce tests the taskstore by setting up a fake pipeline and
 // working it for a while, just to make sure that things don't really hang up.
 func ExampleTaskStore_mapReduce() {
