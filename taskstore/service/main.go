@@ -56,9 +56,9 @@ type UpdateRequest struct {
 }
 
 type UpdateResponse struct {
-	Success   bool       `json:'success'`
-	NewTasks  []TaskInfo `json:'newtasks'`
-	Errors    []string   `json:'errors'`
+	Success  bool       `json:'success'`
+	NewTasks []TaskInfo `json:'newtasks'`
+	Errors   []string   `json:'errors'`
 }
 
 type ClaimRequest struct {
@@ -113,19 +113,44 @@ func (s *HandlerStore) Groups(w http.ResponseWriter, r *http.Request) {
 	w.Write(out)
 }
 
-// Tasks returns a list of tasks for the specified group. It can be limited
-// to a certain number, and can optionally allow owned tasks to be returned as
-// well as unowned.
+// Task returns a single task, specified by ID.
+func (s *HandlerStore) Task(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		s.getTask(w, r)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+// Tasks returns tasks for the given IDs, all that are available.
 func (s *HandlerStore) Tasks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		s.getTasks(w, r)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+// Group returns a list of tasks for the specified group. It can be limited
+// to a certain number, and can optionally allow owned tasks to be returned as
+// well as unowned.
+func (s *HandlerStore) Group(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		s.getGroup(w, r)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+// Update attempts to update a set of tasks, including adds, updates, deletes,
+// and depends. This is the core mutation call.
+func (s *HandlerStore) Update(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
 	case "PUT":
-		s.putTasks(w, r)
-	case "POST":
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	case "DELETE":
-		w.WriteHeader(http.StatusMethodNotAllowed)
+		s.putUpdate(w, r)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -134,25 +159,78 @@ func (s *HandlerStore) Tasks(w http.ResponseWriter, r *http.Request) {
 // Claim accepts a group name with optional limit, duration, and dependencies.
 func (s *HandlerStore) Claim(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
-	case "GET":
-		w.WriteHeader(http.StatusMethodNotAllowed)
 	case "PUT":
 		s.putClaim(w, r)
-	case "POST":
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	case "DELETE":
-		w.WriteHeader(http.StatusMethodNotAllowed)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
 
+// getTask returns the specified Task info, if it exists in the store.
+func (s *HandlerStore) getTask(w http.ResponseWriter, r *http.Request) {
+	pieces := strings.Split(r.URL.Path, "/")
+	if len(pieces) != 2 {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, fmt.Sprintf("invalid task request, expected /task/<id>, got %v\n", r.URL.Path))
+		return
+	}
+	idstr := pieces[1]
+	id, err := strconv.ParseInt(idstr, 10, 64)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, fmt.Sprintf("invalid task request, expected /task/<numeric ID>, got %v\n", r.URL.Path))
+		return
+	}
+
+	tasks := s.store.Tasks([]int64{id})
+	out, jerr := json.Marshal(tasks[0])
+	if jerr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, fmt.Sprintf("failed to marshal returned task (id %d) to json: %v\n", id, jerr))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(out)
+}
+
+// getTasks returns the specified tasks, if they exist in the store.
 func (s *HandlerStore) getTasks(w http.ResponseWriter, r *http.Request) {
+	pieces := strings.Split(r.URL.Path, "/")
+	if len(pieces) != 2 {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, fmt.Sprintf("invalid tasks request, expected /tasks/<id,id,id,...>, got %v\n", r.URL.Path))
+		return
+	}
+	var err error
+	idstrs := strings.Split(pieces[1], ",")
+	ids := make([]int64, len(idstrs))
+	for i, str := range idstrs {
+		ids[i], err = strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, fmt.Sprintf("invalid tasks request, non-numeric ID %q: %v\n", str, err))
+			return
+		}
+	}
+
+	tasks := s.store.Tasks(ids)
+	out, jerr := json.Marshal(tasks)
+	if jerr != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, fmt.Sprintf("failed to marshal returned tasks (ids %d) to json: %v\n", ids, jerr))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(out)
+}
+
+// getGroup returns a list of tasks for a provided group.
+func (s *HandlerStore) getGroup(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	pieces := strings.Split(r.URL.Path, "/")
 	if len(pieces) != 2 {
 		w.WriteHeader(http.StatusBadRequest)
-		io.WriteString(w, fmt.Sprintf("invalid tasks request, expected /tasks/<groupname>, got %v\n", pieces))
+		io.WriteString(w, fmt.Sprintf("invalid group request, expected /group/<groupname>, got %v\n", r.URL.Path))
 		return
 	}
 	name := pieces[1]
@@ -220,7 +298,7 @@ func (s *HandlerStore) putClaim(w http.ResponseWriter, r *http.Request) {
 
 		response := ClaimResponse{
 			Success: false,
-			Errors: estrs,
+			Errors:  estrs,
 		}
 		out, jerr := json.Marshal(response)
 		if jerr != nil {
@@ -228,15 +306,16 @@ func (s *HandlerStore) putClaim(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, fmt.Sprintf("failed to marshal failed claim response: %v", jerr))
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(out)
 		return
 	}
 	response := ClaimResponse{
 		Success: true,
 		Task: TaskInfo{
-			ID: task.ID,
-			Group: task.Group,
-			Data: string(task.Data),
+			ID:       task.ID,
+			Group:    task.Group,
+			Data:     string(task.Data),
 			TimeSpec: task.AvailableTime,
 		},
 	}
@@ -246,12 +325,13 @@ func (s *HandlerStore) putClaim(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, fmt.Sprintf("failed to marshal successful claim response: %v", jerr))
 		return
 	}
+	w.Header().Set("Content-Type", "application/json")
 	w.Write(out)
 	return
 }
 
-// putTasks is called when a task updated is attempted. It calls taskstore.TaskStore.Update.
-func (s *HandlerStore) putTasks(w http.ResponseWriter, r *http.Request) {
+// putUpdate is called when a task updated is attempted. It calls taskstore.TaskStore.Update.
+func (s *HandlerStore) putUpdate(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	updatestr := r.Form.Get("update")
 	if updatestr == "" {
@@ -316,8 +396,8 @@ func (s *HandlerStore) putTasks(w http.ResponseWriter, r *http.Request) {
 			estrs[i] = e.Error()
 		}
 		response := UpdateResponse{
-			Success:   false,
-			Errors:    estrs,
+			Success: false,
+			Errors:  estrs,
 		}
 		out, jerr = json.Marshal(response)
 		if jerr != nil {
@@ -325,6 +405,7 @@ func (s *HandlerStore) putTasks(w http.ResponseWriter, r *http.Request) {
 			io.WriteString(w, fmt.Sprintf("failed to marshal failed update response: %v", jerr))
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.Write(out)
 		return
 	}
@@ -340,8 +421,8 @@ func (s *HandlerStore) putTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := UpdateResponse{
-		Success:   true,
-		NewTasks:  outtasks,
+		Success:  true,
+		NewTasks: outtasks,
 	}
 	out, jerr := json.Marshal(response)
 	if jerr != nil {
@@ -350,6 +431,7 @@ func (s *HandlerStore) putTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.Write(out)
 }
 
@@ -374,10 +456,14 @@ func main() {
 		io.WriteString(w, fmt.Sprintf("%#v\n", r.Form))
 		io.WriteString(w, fmt.Sprintf("Test\n"))
 	})
-	http.HandleFunc("/groups", store.Groups)
-	http.HandleFunc("/tasks", store.Tasks)
-	http.HandleFunc("/tasks/", store.Tasks) // GET takes a required group name
-	http.HandleFunc("/claim/", store.Claim) // PUT takes a required group name
+
+	http.HandleFunc("/groups", store.Groups) // GET retrieves a list of groups.
+	http.HandleFunc("/task/", store.Task)    // GET retrieves the task, specified by numeric ID.
+	http.HandleFunc("/tasks/", store.Tasks)  // GET retrieves a list of comma-separated tasks by ID.
+	http.HandleFunc("/group/", store.Group)  // GET retrieves tasks for the given group.
+
+	http.HandleFunc("/update", store.Update) // PUT updates the specified tasks.
+	http.HandleFunc("/claim", store.Claim)   // PUT takes a required group name
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil))
 }
