@@ -73,6 +73,7 @@ type TaskStore struct {
 	snapshotChan     chan request
 	snapshotDoneChan chan error
 	stringChan       chan request
+	tasksChan        chan request
 }
 
 // NewStrict returns a TaskStore with journaling done synchronously
@@ -112,6 +113,7 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 		snapshotChan:     make(chan request),
 		snapshotDoneChan: make(chan error),
 		stringChan:       make(chan request),
+		tasksChan:        make(chan request),
 	}
 
 	var err error
@@ -568,6 +570,17 @@ func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 	return tasks[0], nil
 }
 
+// tasks tries to get all of the id-specified tasks. Errors are only returned
+// if something truly goes wrong, not if the tasks are just not there. In that
+// case a nil task is returned.
+func (t *TaskStore) getTasks(ids []int64) []*Task {
+	tasks := make([]*Task, len(ids))
+	for i, id := range ids {
+		tasks[i] = t.getTask(id)
+	}
+	return tasks
+}
+
 // Update makes changes to the task store. The owner is the ID of the
 // requester, and tasks to be added, changed, and deleted can be specified. If
 // dep is specified, it is a list of task IDs that must be present for the
@@ -637,6 +650,14 @@ func (t *TaskStore) Claim(owner int32, group string, duration int64, depends []i
 	}
 	resp := t.sendRequest(claim, t.claimChan)
 	return resp.Val.(*Task), resp.Err
+}
+
+// Task attempts to retrieve particular tasks from the store, specified by ID.
+// The returned slice of tasks will be of the same size as the requested IDs,
+// and some of them may be nil (if the requested task does not exist).
+func (t *TaskStore) Tasks(ids []int64) []*Task {
+	resp := t.sendRequest(ids, t.tasksChan)
+	return resp.Val.([]*Task)
 }
 
 // Snapshot tries to force a snapshot to start immediately. It only fails if
@@ -770,6 +791,9 @@ func (t *TaskStore) handle() {
 				fmt.Sprintf("  num tasks: %d", len(t.tasks)+len(t.tmpTasks)-len(t.delTasks)),
 				fmt.Sprintf("  last task id: %d", t.lastTaskID))
 			req.ResultChan <- response{strings.Join(strs, "\n"), nil}
+		case req := <-t.tasksChan:
+			tasks := t.getTasks(req.Val.([]int64))
+			req.ResultChan <- response{tasks, nil}
 		}
 	}
 }
