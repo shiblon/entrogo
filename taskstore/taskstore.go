@@ -518,14 +518,6 @@ func (t *TaskStore) listGroup(lg reqListGroup) []*Task {
 	return tasks
 }
 
-func (t *TaskStore) groups() []string {
-	groups := make([]string, 0, len(t.heaps))
-	for k := range t.heaps {
-		groups = append(groups, k)
-	}
-	return groups
-}
-
 func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 	now := NowMillis()
 
@@ -568,17 +560,6 @@ func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 		return nil, err
 	}
 	return tasks[0], nil
-}
-
-// tasks tries to get all of the id-specified tasks. Errors are only returned
-// if something truly goes wrong, not if the tasks are just not there. In that
-// case a nil task is returned.
-func (t *TaskStore) getTasks(ids []int64) []*Task {
-	tasks := make([]*Task, len(ids))
-	for i, id := range ids {
-		tasks[i] = t.getTask(id)
-	}
-	return tasks
 }
 
 // Update makes changes to the task store. The owner is the ID of the
@@ -757,7 +738,10 @@ func (t *TaskStore) handle() {
 			tasks, err := t.claim(req.Val.(reqClaim))
 			req.ResultChan <- response{tasks, err}
 		case req := <-t.groupsChan:
-			groups := t.groups()
+			groups := make([]string, 0, len(t.heaps))
+			for k := range t.heaps {
+				groups = append(groups, k)
+			}
 			req.ResultChan <- response{groups, nil}
 		case req := <-t.snapshotChan:
 			if t.snapshotting {
@@ -792,7 +776,11 @@ func (t *TaskStore) handle() {
 				fmt.Sprintf("  last task id: %d", t.lastTaskID))
 			req.ResultChan <- response{strings.Join(strs, "\n"), nil}
 		case req := <-t.tasksChan:
-			tasks := t.getTasks(req.Val.([]int64))
+			ids := req.Val.([]int64)
+			tasks := make([]*Task, len(ids))
+			for i, id := range ids {
+				tasks[i] = t.getTask(id)
+			}
 			req.ResultChan <- response{tasks, nil}
 		}
 	}
