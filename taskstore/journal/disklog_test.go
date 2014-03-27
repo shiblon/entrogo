@@ -24,7 +24,7 @@ import (
 func ExampleDiskLog() {
 	// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
 	fs := NewMemFS("/tmp/disklog")
-	journal, err := NewDiskLogInjectFS("/tmp/disklog", fs)
+	journal, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
 	if err != nil {
 		fmt.Printf("Failed to open /tmp/disklog: %v\n", err)
 		return
@@ -68,7 +68,7 @@ func ExampleDiskLog() {
 
 func TestDiskLog_Rotate(t *testing.T) {
 	fs := NewMemFS("/tmp/disklog")
-	journal, err := NewDiskLogInjectFS("/tmp/disklog", fs)
+	journal, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
 	if err != nil {
 		t.Fatalf("failed to create memfs disklog: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestDiskLog_Rotate(t *testing.T) {
 func TestDiskLog_Decode_Corrupt(t *testing.T) {
 	// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
 	fs := NewMemFS("/tmp/disklog")
-	journal, err := NewDiskLogInjectFS("/tmp/disklog", fs)
+	journal, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
 	if err != nil {
 		t.Fatalf("failed to open /tmp/disklog: %v\n", err)
 	}
@@ -227,7 +227,7 @@ func TestDiskLog_Snapshot(t *testing.T) {
 	}
 
 	fs := NewMemFS("/myfs")
-	journal, err := NewDiskLogInjectFS("/myfs", fs)
+	journal, err := OpenDiskLogInjectFS("/myfs", fs)
 	if err != nil {
 		t.Fatalf("failed to create journal: %v", err)
 	}

@@ -44,6 +44,9 @@ type Interface interface {
 	// JournalDecoder returns a decode function that can be called to decode
 	// the next element in the journal stream.
 	JournalDecoder() (Decoder, error)
+
+	// Close allows the journal to shut down (e.g., flush data) gracefully.
+	Close() error
 }
 
 type Decoder interface {
@@ -101,6 +104,10 @@ func (j *Bytes) JournalDecoder() (Decoder, error) {
 	return gob.NewDecoder(j.buff), nil
 }
 
+func (j *Bytes) Close() error {
+	return nil
+}
+
 type Count int64
 
 func NewCount() *Count {
@@ -138,4 +145,8 @@ func (j Count) SnapshotDecoder() (Decoder, error) {
 
 func (j Count) JournalDecoder() (Decoder, error) {
 	return EmptyDecoder{}, nil
+}
+
+func (j Count) Close() error {
+	return nil
 }

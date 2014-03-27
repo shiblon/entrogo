@@ -20,6 +20,7 @@
 package taskstore
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -28,6 +29,10 @@ import (
 
 	"code.google.com/p/entrogo/keyheap"
 	"code.google.com/p/entrogo/taskstore/journal"
+)
+
+var (
+	ErrAlreadySnapshotting = errors.New("already snapshotting")
 )
 
 const (
@@ -74,26 +79,27 @@ type TaskStore struct {
 	snapshotDoneChan chan error
 	stringChan       chan request
 	tasksChan        chan request
+	closeChan        chan request
 }
 
-// NewStrict returns a TaskStore with journaling done synchronously
+// OpenStrict returns a TaskStore with journaling done synchronously
 // instead of opportunistically. This means that, in the event of a crash, the
 // full task state will be recoverable and nothing will be lost that appeared
 // to be commmitted.
 // Use this if you don't mind slower mutations and really need committed tasks
 // to stay committed under all circumstances. In particular, if task execution
 // is not idempotent, this is the right one to use.
-func NewStrict(journaler journal.Interface) *TaskStore {
+func OpenStrict(journaler journal.Interface) *TaskStore {
 	return newTaskStoreHelper(journaler, false)
 }
 
-// NewOpportunistic returns a new TaskStore instance.
+// OpenOpportunistic returns a new TaskStore instance.
 // This store will be opportunistically journaled, meaning that it is possible
 // to update, delete, or create a task, get confirmation of it occurring,
 // crash, and find that recently committed tasks are lost.
 // If task execution is idempotent, this is safe, and is much faster, as it
 // writes to disk when it gets a chance.
-func NewOpportunistic(journaler journal.Interface) *TaskStore {
+func OpenOpportunistic(journaler journal.Interface) *TaskStore {
 	return newTaskStoreHelper(journaler, true)
 }
 
@@ -114,6 +120,7 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 		snapshotDoneChan: make(chan error),
 		stringChan:       make(chan request),
 		tasksChan:        make(chan request),
+		closeChan:        make(chan request),
 	}
 
 	var err error
@@ -183,6 +190,13 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 	return ts
 }
 
+// Close shuts down the taskstore gracefully, finalizing the journal, etc.
+func (t *TaskStore) Close() error {
+	resp := t.sendRequest(nil, t.closeChan)
+	return resp.Err
+}
+
+
 // String formats this as a string. Shows minimal information like group names.
 func (t *TaskStore) String() string {
 	resp := t.sendRequest(nil, t.stringChan)
@@ -242,6 +256,12 @@ func (t *TaskStore) nextID() int64 {
 
 // snapshot takes care of using the journaler to create a snapshot.
 func (t *TaskStore) snapshot() error {
+	if t.snapshotting {
+		return ErrAlreadySnapshotting
+	}
+	t.snapshotting = true
+	t.txnsSinceSnapshot = 0
+
 	// First we make sure that the cache is flushed. We're still synchronous,
 	// because we're in the main handler and no goroutines have been created.
 	t.depleteCache(0)
@@ -719,15 +739,11 @@ func (t *TaskStore) handle() {
 			if err == nil {
 				// Successful txn: is it time to create a full snapshot?
 				if t.txnsSinceSnapshot >= maxTxnsSinceSnapshot {
-					t.txnsSinceSnapshot = 0
-					t.snapshot()
-				}
-
-				// Finally, if we are not snapshotting, we can try to move some things out
-				// of the cache into the main data section. On the off chance that
-				// snapshotting finished by now, we check it again.
-				if !t.snapshotting {
-					t.depleteCache(maxCacheDepletion)
+					err = t.snapshot()
+					// Ignore error if it's just telling us that we're already snapshotting.
+					if err == ErrAlreadySnapshotting {
+						err = nil
+					}
 				}
 			}
 			req.ResultChan <- response{tasks, err}
@@ -747,9 +763,8 @@ func (t *TaskStore) handle() {
 			if t.snapshotting {
 				err := fmt.Errorf("attempted snapshot while already snapshotting")
 				req.ResultChan <- response{nil, err}
-				break // out of select
+				break // out of select case
 			}
-			t.snapshotting = true
 			err := t.snapshot()
 			req.ResultChan <- response{nil, err}
 		case err := <-t.snapshotDoneChan:
@@ -782,6 +797,9 @@ func (t *TaskStore) handle() {
 				tasks[i] = t.getTask(id)
 			}
 			req.ResultChan <- response{tasks, nil}
+		case req := <-t.closeChan:
+			err := t.journaler.Close()
+			req.ResultChan <- response{nil, err}
 		}
 	}
 }
