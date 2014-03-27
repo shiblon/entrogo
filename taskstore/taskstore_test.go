@@ -38,7 +38,7 @@ func ExampleTaskStore() {
 	// simultaneous unsafe access in a networked environment, however. For that
 	// a consensus protocol or something similar is recommended, implemented at
 	// the service level.
-	jr, err := journal.NewDiskLog("/tmp/taskjournal")
+	jr, err := journal.OpenDiskLog("/tmp/taskjournal")
 	if err != nil {
 		panic(fmt.Sprintf("could not create journal: %v", err))
 	}
@@ -50,7 +50,8 @@ func ExampleTaskStore() {
 	// the background. If task execution is idempotent and it is always obvious
 	// when to retry, you can get a speed benefit from opportunistic
 	// journaling.
-	store := NewStrict(jr)
+	store := OpenStrict(jr)
+	defer store.Close()
 
 	// To put a task into the store, call Update with the "add" parameter:
 	add := []*Task{
@@ -82,11 +83,12 @@ func ExampleTaskStore() {
 
 func TestTaskStore_Update(t *testing.T) {
 	fs := journal.NewMemFS("/myfs")
-	jr, err := journal.NewDiskLogInjectFS("/myfs", fs)
+	jr, err := journal.OpenDiskLogInjectFS("/myfs", fs)
 	if err != nil {
 		t.Fatalf("failed to create journal: %v", err)
 	}
-	store := NewStrict(jr)
+	store := OpenStrict(jr)
+	defer store.Close()
 
 	var ownerID int32 = 11
 
@@ -315,11 +317,12 @@ func ExampleTaskStore_mapReduce() {
 
 	// Create a taskstore backed by a fake in-memory journal.
 	fs := journal.NewMemFS("/myfs")
-	jr, err := journal.NewDiskLogInjectFS("/myfs", fs)
+	jr, err := journal.OpenDiskLogInjectFS("/myfs", fs)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create journal: %v", err))
 	}
-	store := NewStrict(jr)
+	store := OpenStrict(jr)
+	defer store.Close()
 
 	// And add all of the input lines.
 	toAdd := make([]*Task, len(lines))

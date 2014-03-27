@@ -16,6 +16,7 @@ package journal
 
 import (
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -27,6 +28,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+)
+
+var (
+	ErrNotOpen = errors.New("journal is not open")
 )
 
 const (
@@ -47,11 +52,12 @@ type DiskLog struct {
 	journalBirth     time.Time
 	journalRecords   int
 	lastSnapshotTime time.Time
+	isOpen           bool
 
 	rot  chan chan error
-	quit chan bool
 	add  chan addRequest
 	snap chan snapRequest
+	quit chan chan error
 }
 
 type addRequest struct {
@@ -65,12 +71,12 @@ type snapRequest struct {
 	resp     chan error
 }
 
-func NewDiskLog(dir string) (*DiskLog, error) {
+func OpenDiskLog(dir string) (*DiskLog, error) {
 	// Default implementation just uses standard os module
-	return NewDiskLogInjectFS(dir, OSFS{})
+	return OpenDiskLogInjectFS(dir, OSFS{})
 }
 
-func NewDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
+func OpenDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 	if info, err := fs.Stat(dir); err != nil {
 		return nil, fmt.Errorf("Unable to stat %q: %v", dir, err)
 	} else if !info.IsDir() {
@@ -82,7 +88,7 @@ func NewDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 		add:  make(chan addRequest, 1),
 		rot:  make(chan chan error, 1),
 		snap: make(chan snapRequest, 1),
-		quit: make(chan bool, 1),
+		quit: make(chan chan error, 1),
 		fs:   fs,
 	}
 
@@ -107,12 +113,22 @@ func NewDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 				resp <- d.rotateLog()
 			case req := <-d.snap:
 				req.resp <- d.snapshot(req.elems, req.snapresp)
-			case <-d.quit:
+			case resp := <-d.quit:
+				resp <- d.freezeLog()
+				d.isOpen = false
 				return
 			}
 		}
 	}()
+
 	return d, nil
+}
+
+// Close gracefully shuts the journal down, finalizing the current journal log.
+func (d *DiskLog) Close() error {
+	resp := make(chan error, 1)
+	d.quit <- resp
+	return <-resp
 }
 
 func (d *DiskLog) mustLock() {
@@ -136,6 +152,9 @@ func (d *DiskLog) mustLock() {
 
 // addRecord attempts to append the record to the end of the file, using gob encoding.
 func (d *DiskLog) addRecord(rec interface{}) error {
+	if !d.isOpen {
+		return ErrNotOpen
+	}
 	if err := d.journalEnc.Encode(rec); err != nil {
 		return err
 	}
@@ -166,6 +185,9 @@ func TSFromName(name string) (int64, error) {
 // a snapshot file. It always triggers a log rotation, so that any other data
 // that comes in (not part of the snapshot) is strictly newer.
 func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
+	if !d.isOpen {
+		return ErrNotOpen
+	}
 	lastbirth := d.journalBirth
 	if err := d.rotateLog(); err != nil {
 		return err
@@ -253,6 +275,9 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 // freezeLog closes the file for the current journal, nils out the appropriate
 // members, and removes the ".working" suffix from the file name.
 func (d *DiskLog) freezeLog() error {
+	if !d.isOpen {
+		return ErrNotOpen
+	}
 	jf := d.journalFile
 	d.journalEnc = nil
 	d.journalFile = nil
@@ -298,11 +323,15 @@ func (d *DiskLog) openNewLog() error {
 	d.journalRecords = 0
 	d.journalFile = f
 	d.journalEnc = gob.NewEncoder(f)
+	d.isOpen = true
 	return nil
 }
 
 // rotateLog closes and freezes the current log and opens a new one.
 func (d *DiskLog) rotateLog() error {
+	if !d.isOpen {
+		return ErrNotOpen
+	}
 	if err := d.freezeLog(); err != nil {
 		return err
 	}
