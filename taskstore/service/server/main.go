@@ -28,6 +28,7 @@ import (
 
 	"code.google.com/p/entrogo/taskstore"
 	"code.google.com/p/entrogo/taskstore/journal"
+	"code.google.com/p/entrogo/taskstore/service/def"
 )
 
 var (
@@ -35,45 +36,6 @@ var (
 	port            = flag.Int("port", 8048, "port on which to listen for task requests")
 	isOpportunistic = flag.Bool("opp", false, "turns on opportunistic journaling when true. This means that task updates are flushed to disk when possible. Leaving it strict means that task updates are flushed before given back to the caller.")
 )
-
-type TaskInfo struct {
-	ID    int64  `json:'id'`
-	Group string `json:'group'`
-	Data  string `json:'data'`
-
-	// The TimeSpec, when positive, indicates an absolute timestamp in
-	// milliseconds since the epoch (UTC). When negative, its absolute value
-	// will be added to the current time to create an appropriate timestamp.
-	TimeSpec int64 `json:'duration'`
-}
-
-type UpdateRequest struct {
-	ClientID int32      `json:'clientid'`
-	Adds     []TaskInfo `json:'adds'`
-	Updates  []TaskInfo `json:'updates'`
-	Deletes  []int64    `json:'deletes'`
-	Depends  []int64    `json:'depends'`
-}
-
-type UpdateResponse struct {
-	Success  bool       `json:'success'`
-	NewTasks []TaskInfo `json:'newtasks'`
-	Errors   []string   `json:'errors'`
-}
-
-type ClaimRequest struct {
-	ClientID int32   `json:'clientid'`
-	Group    string  `json:'group'`
-	Limit    int32   `json:'limit'`
-	Duration int64   `json:'duration'`
-	Depends  []int64 `json:'depends'`
-}
-
-type ClaimResponse struct {
-	Success bool     `json:'success'`
-	Task    TaskInfo `json:'task'`
-	Errors  []string `json:'errors'`
-}
 
 type HandlerStore struct {
 	store *taskstore.TaskStore
@@ -149,8 +111,8 @@ func (s *HandlerStore) Group(w http.ResponseWriter, r *http.Request) {
 // and depends. This is the core mutation call.
 func (s *HandlerStore) Update(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
-	case "PUT":
-		s.putUpdate(w, r)
+	case "POST":
+		s.postUpdate(w, r)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -159,8 +121,8 @@ func (s *HandlerStore) Update(w http.ResponseWriter, r *http.Request) {
 // Claim accepts a group name with optional limit, duration, and dependencies.
 func (s *HandlerStore) Claim(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
-	case "PUT":
-		s.putClaim(w, r)
+	case "POST":
+		s.postClaim(w, r)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -270,8 +232,8 @@ func (s *HandlerStore) getGroup(w http.ResponseWriter, r *http.Request) {
 	w.Write(out)
 }
 
-// putClaim is called when a task is to be claimed.
-func (s *HandlerStore) putClaim(w http.ResponseWriter, r *http.Request) {
+// postClaim is called when a task is to be claimed.
+func (s *HandlerStore) postClaim(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	claimstr := r.Form.Get("claim")
 	if claimstr == "" {
@@ -280,8 +242,8 @@ func (s *HandlerStore) putClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var claim ClaimRequest
-	err := json.Unmarshal([]byte(claimstr), claim)
+	var claim def.ClaimRequest
+	err := json.Unmarshal([]byte(claimstr), &claim)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		io.WriteString(w, fmt.Sprintf("failed to decode json claim %v: %q", claimstr, err))
@@ -296,7 +258,7 @@ func (s *HandlerStore) putClaim(w http.ResponseWriter, r *http.Request) {
 			estrs[i] = e.Error()
 		}
 
-		response := ClaimResponse{
+		response := def.ClaimResponse{
 			Success: false,
 			Errors:  estrs,
 		}
@@ -310,9 +272,9 @@ func (s *HandlerStore) putClaim(w http.ResponseWriter, r *http.Request) {
 		w.Write(out)
 		return
 	}
-	response := ClaimResponse{
+	response := def.ClaimResponse{
 		Success: true,
-		Task: TaskInfo{
+		Task: def.TaskInfo{
 			ID:       task.ID,
 			Group:    task.Group,
 			Data:     string(task.Data),
@@ -330,8 +292,8 @@ func (s *HandlerStore) putClaim(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-// putUpdate is called when a task updated is attempted. It calls taskstore.TaskStore.Update.
-func (s *HandlerStore) putUpdate(w http.ResponseWriter, r *http.Request) {
+// postUpdate is called when a task updated is attempted. It calls taskstore.TaskStore.Update.
+func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	updatestr := r.Form.Get("update")
 	if updatestr == "" {
@@ -340,8 +302,8 @@ func (s *HandlerStore) putUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var update UpdateRequest
-	err := json.Unmarshal([]byte(updatestr), update)
+	var update def.UpdateRequest
+	err := json.Unmarshal([]byte(updatestr), &update)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		io.WriteString(w, fmt.Sprintf("failed to decode json update %v: %v", updatestr, err))
@@ -395,7 +357,7 @@ func (s *HandlerStore) putUpdate(w http.ResponseWriter, r *http.Request) {
 		for i, e := range uerr.Errors {
 			estrs[i] = e.Error()
 		}
-		response := UpdateResponse{
+		response := def.UpdateResponse{
 			Success: false,
 			Errors:  estrs,
 		}
@@ -410,9 +372,9 @@ func (s *HandlerStore) putUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outtasks := make([]TaskInfo, len(newtasks))
+	outtasks := make([]def.TaskInfo, len(newtasks))
 	for i, t := range newtasks {
-		outtasks[i] = TaskInfo{
+		outtasks[i] = def.TaskInfo{
 			ID:       t.ID,
 			Group:    t.Group,
 			Data:     string(t.Data),
@@ -420,7 +382,7 @@ func (s *HandlerStore) putUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response := UpdateResponse{
+	response := def.UpdateResponse{
 		Success:  true,
 		NewTasks: outtasks,
 	}
@@ -462,8 +424,8 @@ func main() {
 	http.HandleFunc("/tasks/", store.Tasks)  // GET retrieves a list of comma-separated tasks by ID.
 	http.HandleFunc("/group/", store.Group)  // GET retrieves tasks for the given group.
 
-	http.HandleFunc("/update", store.Update) // PUT updates the specified tasks.
-	http.HandleFunc("/claim", store.Claim)   // PUT takes a required group name
+	http.HandleFunc("/update", store.Update) // POST updates the specified tasks.
+	http.HandleFunc("/claim", store.Claim)   // POST takes a required group name
 
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil))
 }
