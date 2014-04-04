@@ -120,10 +120,10 @@ func TestTaskStore_Update(t *testing.T) {
 		if nt.OwnerID != ownerID {
 			t.Errorf("expected owner ID %d, got %d", ownerID, nt.OwnerID)
 		}
-		if nt.AvailableTime > now {
-			t.Errorf("new task has assigned available time in the future. expected t <= %d, got %d", now, nt.AvailableTime)
-		} else if nt.AvailableTime <= 0 {
-			t.Errorf("expected valid available time, got %d", nt.AvailableTime)
+		if nt.AT > now {
+			t.Errorf("new task has assigned available time in the future. expected t <= %d, got %d", now, nt.AT)
+		} else if nt.AT <= 0 {
+			t.Errorf("expected valid available time, got %d", nt.AT)
 		}
 		if string(nt.Data) != string(task.Data) {
 			t.Errorf("expected task data to be %q, got %q", task.Data, nt.Data)
@@ -150,9 +150,9 @@ func TestTaskStore_Update(t *testing.T) {
 		t.Errorf("nongroup should come back nil (no tasks, but not an error), came back %v", nongroupTasks)
 	}
 
-	// Now claim a task by setting its AvailableTime in the future by some number of milliseconds.
+	// Now claim a task by setting its AT in the future by some number of milliseconds.
 	t0 := added[0].Copy()
-	t0.AvailableTime += 60 * 1000 // 1 minute into the future, this will expire
+	t0.AT += 60 * 1000 // 1 minute into the future, this will expire
 	updated, err := store.Update(ownerID, nil, []*Task{t0}, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to update task %v: %v", added[0], err)
@@ -166,8 +166,8 @@ func TestTaskStore_Update(t *testing.T) {
 	if updated[0].OwnerID != ownerID {
 		t.Errorf("expected updated task to have owner ID %d, got %d", ownerID, updated[0].OwnerID)
 	}
-	if updated[0].AvailableTime-added[0].AvailableTime != 60000 {
-		t.Errorf("expected updated task to expire 1 minute later than before, but got a difference of %d", updated[0].AvailableTime-added[0].AvailableTime)
+	if updated[0].AT-added[0].AT != 60000 {
+		t.Errorf("expected updated task to expire 1 minute later than before, but got a difference of %d", updated[0].AT-added[0].AT)
 	}
 	// Task is now owned, so it should not come back if we disallow owned tasks in a group listing.
 	g1Available := store.ListGroup("g1", 0, false)
@@ -180,18 +180,18 @@ func TestTaskStore_Update(t *testing.T) {
 
 	// This owner should be able to update its own future task.
 	t0 = updated[0].Copy()
-	t0.AvailableTime += 1000
+	t0.AT += 1000
 	updated2, err := store.Update(ownerID, nil, []*Task{t0}, nil, nil)
 	if err != nil {
 		t.Fatalf("couldn't update future task: %v", err)
 	}
-	if updated2[0].AvailableTime-updated[0].AvailableTime != 1000 {
-		t.Errorf("expected 1-second increase in available time, got difference of %d milliseconds", updated2[0].AvailableTime-updated[0].AvailableTime)
+	if updated2[0].AT-updated[0].AT != 1000 {
+		t.Errorf("expected 1-second increase in available time, got difference of %d milliseconds", updated2[0].AT-updated[0].AT)
 	}
 
 	// But another owner should not be able to touch it.
 	t0 = updated2[0].Copy()
-	t0.AvailableTime += 2000
+	t0.AT += 2000
 	_, err = store.Update(ownerID+1, nil, []*Task{t0}, nil, nil)
 	if err == nil {
 		t.Fatalf("owner %d should not succeed in updated task owned by %d", ownerID+1, ownerID)

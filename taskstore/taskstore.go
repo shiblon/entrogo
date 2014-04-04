@@ -411,7 +411,7 @@ func (t *TaskStore) heapPush(task *Task) {
 }
 
 func testCanModify(now int64, clientID int32, task *Task) error {
-	if task.AvailableTime > now && clientID != task.OwnerID {
+	if task.AT > now && clientID != task.OwnerID {
 		return fmt.Errorf("task %d owned by %d, cannot be changed by %d", task.ID, task.OwnerID, clientID)
 	}
 	return nil
@@ -495,8 +495,8 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 		// Assign IDs to all new tasks, and assign "now" to any that have no availability set.
 		// Negative available time means "add the absolute value of this to now".
 		nt.ID = t.nextID()
-		if nt.AvailableTime <= 0 {
-			nt.AvailableTime = now - nt.AvailableTime
+		if nt.AT <= 0 {
+			nt.AT = now - nt.AT
 		}
 	}
 
@@ -528,7 +528,7 @@ func (t *TaskStore) listGroup(lg reqListGroup) []*Task {
 		tasks = make([]*Task, 0, limit)
 		for i, found := 0, 0; i < h.Len() && found < limit; i++ {
 			task := h.PeekAt(i).(*Task)
-			if task.AvailableTime <= now {
+			if task.AT <= now {
 				tasks = append(tasks, task)
 				found++
 			}
@@ -550,7 +550,7 @@ func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 	if !ok || h == nil || h.Len() == 0 {
 		return nil, nil // not an error, just no tasks available
 	}
-	if task := h.Peek().(*Task); task.AvailableTime > now {
+	if task := h.Peek().(*Task); task.AT > now {
 		return nil, nil // not an error, just no unowned tasks available
 	}
 
@@ -563,7 +563,7 @@ func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 		ID:            task.ID,
 		OwnerID:       claim.OwnerID,
 		Group:         claim.Group,
-		AvailableTime: -duration,
+		AT: -duration,
 		Data:          task.Data,
 	}
 
@@ -597,8 +597,8 @@ func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) (
 		task := task.Copy()
 		task.ID = 0          // ensure that it's really an add.
 		task.OwnerID = owner // require that the owner be the requester.
-		if task.AvailableTime < 0 {
-			task.AvailableTime = 0 // ensure that it doesn't get marked for deletion.
+		if task.AT < 0 {
+			task.AT = 0 // ensure that it doesn't get marked for deletion.
 		}
 		up.Changes = append(up.Changes, task)
 	}
@@ -606,8 +606,8 @@ func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) (
 	for _, task := range change {
 		task := task.Copy()
 		task.OwnerID = owner
-		if task.AvailableTime < 0 {
-			task.AvailableTime = 0 // no accidental deletions
+		if task.AT < 0 {
+			task.AT = 0 // no accidental deletions
 		}
 		up.Changes = append(up.Changes, task)
 	}
@@ -619,7 +619,7 @@ func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) (
 // ListGroup tries to find tasks for the given group name. The number of tasks
 // returned will be no more than the specified limit. A limit of 0 or less
 // indicates that all possible tasks should be returned. If allowOwned is
-// specified, then even tasks with AvailableTime in the future that are owned
+// specified, then even tasks with AT in the future that are owned
 // by other clients will be returned.
 func (t *TaskStore) ListGroup(name string, limit int, allowOwned bool) []*Task {
 	lg := reqListGroup{
@@ -639,7 +639,7 @@ func (t *TaskStore) Groups() []string {
 
 // Claim attempts to find one random unowned task in the specified group and
 // set the ownership to the specified owner. If successful, the newly-owned
-// tasks are returned with their AvailableTime set to now + duration (in
+// tasks are returned with their AT set to now + duration (in
 // milliseconds).
 func (t *TaskStore) Claim(owner int32, group string, duration int64, depends []int64) (*Task, error) {
 	claim := reqClaim{

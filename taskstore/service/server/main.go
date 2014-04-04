@@ -273,7 +273,7 @@ func (s *HandlerStore) postClaim(w http.ResponseWriter, r *http.Request) {
 				ID:       task.ID,
 				Group:    task.Group,
 				Data:     string(task.Data),
-				TimeSpec: task.AvailableTime,
+				TimeSpec: task.AT,
 			},
 		}
 	}
@@ -318,10 +318,10 @@ func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 			ts = now - ts
 		}
 		adds[i] = &taskstore.Task{
-			ID:            0,
-			Group:         a.Group,
-			AvailableTime: ts,
-			Data:          []byte(a.Data),
+			ID:    0,
+			Group: a.Group,
+			AT:    ts,
+			Data:  []byte(a.Data),
 		}
 	}
 
@@ -331,10 +331,10 @@ func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 			ts = now - ts
 		}
 		updates[i] = &taskstore.Task{
-			ID:            u.ID,
-			Group:         u.Group,
-			AvailableTime: ts,
-			Data:          []byte(u.Data),
+			ID:    u.ID,
+			Group: u.Group,
+			AT:    ts,
+			Data:  []byte(u.Data),
 		}
 	}
 
@@ -369,7 +369,7 @@ func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 			ID:       t.ID,
 			Group:    t.Group,
 			Data:     string(t.Data),
-			TimeSpec: t.AvailableTime,
+			TimeSpec: t.AT,
 		}
 	}
 

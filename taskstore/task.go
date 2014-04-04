@@ -22,20 +22,22 @@ import (
 // availability time (ms). The data is user-defined and can be basically anything.
 //
 // 0 (or less) is an invalid ID, and is used to indicate "please assign".
-// A negative AvailableTime means "delete this task".
+// A negative AT means "delete this task".
 type Task struct {
-	ID      int64
-	OwnerID int32
-	Group   string
+	ID      int64  `json:"id"`
+	OwnerID int32  `json:"ownerid"`
+	Group   string `json:"group"`
 
-	// The milliseconds from the Epoch (UTC) when this task becomes available.
-	// A value of 0 indicates that it should be assigned "now" when pushed.
-	AvailableTime int64
+	// The "Available Time": milliseconds from the Epoch (UTC) when this task
+	// becomes available. When used in requests, a value <= 0 is subtracted
+	// from "right now" to generate a positive time value. Thus, 0 becomes
+	// "now", and -1000 becomes "1 second from now".
+	AT int64 `json:"at"`
 
 	// Data holds the data for this task.
 	// If you want raw bytes, you'll need to encode them
 	// somehow.
-	Data []byte
+	Data []byte `json:"data"`
 }
 
 // NewTask creates a new task for this owner and group.
@@ -54,13 +56,14 @@ func (t *Task) Copy() *Task {
 
 // String formats this task into a nice string value.
 func (t *Task) String() string {
-	return fmt.Sprintf("Task %d: g=%q o=%d t=%d d=%v", t.ID, t.Group, t.OwnerID, t.AvailableTime, t.Data)
+	return fmt.Sprintf("Task %d: g=%q o=%d t=%d d=%v", t.ID, t.Group, t.OwnerID, t.AT, t.Data)
 }
 
 // Priority returns an integer that can be used for heap ordering.
-// In this case it's just the AvailableTime.
+// In this case it's just the available time (ordering is from smallest to
+// largest, or from oldest to newest).
 func (t *Task) Priority() int64 {
-	return t.AvailableTime
+	return t.AT
 }
 
 // Key returns the ID, to satisfy the keyheap.Item interface. This allows tasks to
