@@ -28,7 +28,7 @@ import (
 
 	"code.google.com/p/entrogo/taskstore"
 	"code.google.com/p/entrogo/taskstore/journal"
-	"code.google.com/p/entrogo/taskstore/service/def"
+	"code.google.com/p/entrogo/taskstore/service/protocol"
 )
 
 var (
@@ -242,7 +242,7 @@ func (s *HandlerStore) postClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var claim def.ClaimRequest
+	var claim protocol.ClaimRequest
 	err := json.Unmarshal([]byte(claimstr), &claim)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -253,14 +253,8 @@ func (s *HandlerStore) postClaim(w http.ResponseWriter, r *http.Request) {
 	task, err := s.store.Claim(claim.ClientID, claim.Group, claim.Duration, claim.Depends)
 	if err != nil {
 		uerr := err.(taskstore.UpdateError)
-		estrs := make([]string, len(uerr.Errors))
-		for i, e := range uerr.Errors {
-			estrs[i] = e.Error()
-		}
-
-		response := def.ClaimResponse{
-			Success: false,
-			Errors:  estrs,
+		response := protocol.TaskResponse{
+			Errors: protocol.TaskResponseError(uerr.Errors),
 		}
 		out, jerr := json.Marshal(response)
 		if jerr != nil {
@@ -272,14 +266,16 @@ func (s *HandlerStore) postClaim(w http.ResponseWriter, r *http.Request) {
 		w.Write(out)
 		return
 	}
-	response := def.ClaimResponse{
-		Success: true,
-		Task: def.TaskInfo{
-			ID:       task.ID,
-			Group:    task.Group,
-			Data:     string(task.Data),
-			TimeSpec: task.AvailableTime,
-		},
+	response := protocol.TaskResponse{}
+	if task != nil {
+		response.Tasks = []protocol.TaskInfo{
+			protocol.TaskInfo{
+				ID:       task.ID,
+				Group:    task.Group,
+				Data:     string(task.Data),
+				TimeSpec: task.AvailableTime,
+			},
+		}
 	}
 	out, jerr := json.Marshal(response)
 	if jerr != nil {
@@ -302,7 +298,7 @@ func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var update def.UpdateRequest
+	var update protocol.UpdateRequest
 	err := json.Unmarshal([]byte(updatestr), &update)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -353,13 +349,8 @@ func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		// update errors are fine and expected. We just return an error object in that case.
 		uerr := err.(taskstore.UpdateError)
-		estrs := make([]string, len(uerr.Errors))
-		for i, e := range uerr.Errors {
-			estrs[i] = e.Error()
-		}
-		response := def.UpdateResponse{
-			Success: false,
-			Errors:  estrs,
+		response := protocol.TaskResponse{
+			Errors: protocol.TaskResponseError(uerr.Errors),
 		}
 		out, jerr = json.Marshal(response)
 		if jerr != nil {
@@ -372,9 +363,9 @@ func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outtasks := make([]def.TaskInfo, len(newtasks))
+	outtasks := make([]protocol.TaskInfo, len(newtasks))
 	for i, t := range newtasks {
-		outtasks[i] = def.TaskInfo{
+		outtasks[i] = protocol.TaskInfo{
 			ID:       t.ID,
 			Group:    t.Group,
 			Data:     string(t.Data),
@@ -382,9 +373,8 @@ func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	response := def.UpdateResponse{
-		Success:  true,
-		NewTasks: outtasks,
+	response := protocol.TaskResponse{
+		Tasks: outtasks,
 	}
 	out, jerr := json.Marshal(response)
 	if jerr != nil {

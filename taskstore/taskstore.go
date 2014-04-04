@@ -196,7 +196,6 @@ func (t *TaskStore) Close() error {
 	return resp.Err
 }
 
-
 // String formats this as a string. Shows minimal information like group names.
 func (t *TaskStore) String() string {
 	resp := t.sendRequest(nil, t.stringChan)

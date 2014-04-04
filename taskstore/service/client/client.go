@@ -25,7 +25,7 @@ import (
 	"net/url"
 	"strings"
 
-	"code.google.com/p/entrogo/taskstore/service/def"
+	"code.google.com/p/entrogo/taskstore/service/protocol"
 )
 
 var (
@@ -96,14 +96,14 @@ func (h *HTTPClient) Groups() ([]string, error) {
 }
 
 // Task retrieves the task for the given ID, if it exists.
-func (h *HTTPClient) Task(id int64) (def.TaskInfo, error) {
+func (h *HTTPClient) Task(id int64) (protocol.TaskInfo, error) {
 	req := http.NewRequest("GET", fmt.Sprintf("%s/task/%d", h.baseURL, id), nil)
 	resp, err := h.doRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
-	var task def.TaskInfo
+	var task protocol.TaskInfo
 	decoder := json.NewDecoder(resp.Body)
 	err := decoder.Decode(&task)
 	if err != nil {
@@ -113,7 +113,7 @@ func (h *HTTPClient) Task(id int64) (def.TaskInfo, error) {
 }
 
 // Tasks retrieves the tasks for the given list of IDs.
-func (h *HTTPClient) Tasks(ids ...int64) ([]def.TaskInfo, error) {
+func (h *HTTPClient) Tasks(ids ...int64) ([]protocol.TaskInfo, error) {
 	idstrs := make([]string, len(ids))
 	for i, id := range ids {
 		idstrs[i] = fmt.Sprintf("%d", id)
@@ -124,7 +124,7 @@ func (h *HTTPClient) Tasks(ids ...int64) ([]def.TaskInfo, error) {
 		return nil, err
 	}
 
-	var tasks []def.TaskInfo
+	var tasks []protocol.TaskInfo
 	decoder := json.NewDecoder(resp.Body)
 	err := decoder.Decode(&tasks)
 	if err != nil {
@@ -139,7 +139,7 @@ func (h *HTTPClient) Tasks(ids ...int64) ([]def.TaskInfo, error) {
 // an arrival time in the past will be returned. Note that allowing owned tasks
 // does not discriminate by owner ID. All owned tasks will be allowed
 // regardless of who owns them.
-func (h *HTTPClient) Group(name string, limit int, owned bool) ([]def.TaskInfo, error) {
+func (h *HTTPClient) Group(name string, limit int, owned bool) ([]protocol.TaskInfo, error) {
 	ownint := 0
 	if owned {
 		ownint = 1
@@ -151,7 +151,7 @@ func (h *HTTPClient) Group(name string, limit int, owned bool) ([]def.TaskInfo, 
 		return nil, err
 	}
 
-	var tasks []def.TaskInfo
+	var tasks []protocol.TaskInfo
 	decoder := json.NewDecoder(resp.Body)
 	err := decoder.Decode(&tasks)
 	if err != nil {
@@ -163,11 +163,15 @@ func (h *HTTPClient) Group(name string, limit int, owned bool) ([]def.TaskInfo, 
 // Update attempts to add, update, and delete the specified tasks, provided
 // that all dependencies are met and the operation can be completed atomically
 // and by the appropriate owner, etc.
-// It returns an UpdateResponse, which contains information about whether the
-// operation was successful, the new tasks if any, and an error for each
-// request, as appropriate.
-func (h *HTTPClient) Update(adds, updates []def.TaskInfo, deletes, depends []int64) (def.UpdateResponse, error) {
-	request := def.UpdateRequest{
+//
+// If successful, it returns a slice of tasks, appropriately updated (with new
+// IDs). Otherwise, it returns an error. If the error is of type
+// TaskResponseError, it means that the request succeeded, but the operation
+// could not complete due to normal task store function: it is a slice of
+// errors describing all of the failed constraints or dependencies that led to
+// no update occurring.
+func (h *HTTPClient) Update(adds, updates []protocol.TaskInfo, deletes, depends []int64) ([]protocol.TaskInfo, error) {
+	request := protocol.UpdateRequest{
 		ClientID: ClientID(),
 		Adds:     adds,
 		Updates:  updates,
@@ -184,15 +188,57 @@ func (h *HTTPClient) Update(adds, updates []def.TaskInfo, deletes, depends []int
 		return nil, err
 	}
 
-	var response def.UpdateResponse
+	var response protocol.UpdateResponse
 	decoder := json.NewDecoder(resp.Body)
 	err := decoder.Decode(&response)
 	if err != nil {
 		return nil, err
 	}
-	return response, nil
+	if response.Error != nil {
+		return nil, response.Error
+	}
+	return response.Tasks, nil
 }
 
-// Claim attempts to claim a task from the given group.
-// It returns a ClaimResponse.
-// TODO
+// Claim attempts to claim a task from the given group. If successful, the task
+// returned will be leaesed for an additional duration
+// milliseconds before ownership expirees. The operation will only succeed if
+// all task IDs in depends exist in the task store. A nil value indicates no
+// dependencies.
+//
+// The task returned may be nil, indicating that no tasks were available to be
+// claimed, but otherwise no errors occurred. If the error returned is of type
+// TaskResponseError, then it will be a slice of errors, one for each
+// unsatisifed task constraint (e.g., a missing dependency).
+func (h *HTTPClient) Claim(group string, duration int64, depends []int64) (*protocol.TaskInfo, error) {
+	request := protocol.ClaimRequest{
+		ClientID: ClientID(),
+		Group:    group,
+		Duration: duration,
+		Depends:  depends,
+	}
+	mreq, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	req := http.NewRequest("POST", fmt.Sprintf("%s/claim", h.baseURL), bytes.NewReader(mreq))
+	resp, err := h.doRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var response protocol.TaskResponse
+	decoder := json.NewDecoder(resp.Body)
+	err := decoder.Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	if response.Error != nil {
+		return nil, response.Error
+	}
+	// No tasks available is not an error. There just aren't any tasks.
+	if len(response.Tasks) == 0 {
+		return nil, nil
+	}
+	return &response.Tasks[0], nil
+}
