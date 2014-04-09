@@ -75,9 +75,11 @@ type TaskStore struct {
 	listGroupChan    chan request
 	claimChan        chan request
 	groupsChan       chan request
+	snapshottingChan chan request
 	snapshotChan     chan request
 	snapshotDoneChan chan error
 	stringChan       chan request
+	numTasksChan     chan request
 	tasksChan        chan request
 	closeChan        chan request
 }
@@ -90,7 +92,7 @@ type TaskStore struct {
 // to stay committed under all circumstances. In particular, if task execution
 // is not idempotent, this is the right one to use.
 func OpenStrict(journaler journal.Interface) *TaskStore {
-	return newTaskStoreHelper(journaler, false)
+	return openTaskStoreHelper(journaler, false)
 }
 
 // OpenOpportunistic returns a new TaskStore instance.
@@ -100,10 +102,10 @@ func OpenStrict(journaler journal.Interface) *TaskStore {
 // If task execution is idempotent, this is safe, and is much faster, as it
 // writes to disk when it gets a chance.
 func OpenOpportunistic(journaler journal.Interface) *TaskStore {
-	return newTaskStoreHelper(journaler, true)
+	return openTaskStoreHelper(journaler, true)
 }
 
-func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskStore {
+func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskStore {
 	ts := &TaskStore{
 		journaler: journaler,
 
@@ -116,9 +118,11 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 		listGroupChan:    make(chan request),
 		claimChan:        make(chan request),
 		groupsChan:       make(chan request),
+		snapshottingChan: make(chan request),
 		snapshotChan:     make(chan request),
 		snapshotDoneChan: make(chan error),
 		stringChan:       make(chan request),
+		numTasksChan:     make(chan request),
 		tasksChan:        make(chan request),
 		closeChan:        make(chan request),
 	}
@@ -188,6 +192,10 @@ func newTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskSt
 	// Everything is ready, now we can start our request handling loop.
 	go ts.handle()
 	return ts
+}
+
+func (t *TaskStore) IsStrict() bool {
+	return t.journalChan != nil
 }
 
 // Close shuts down the taskstore gracefully, finalizing the journal, etc.
@@ -484,9 +492,10 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	}
 
 	// Create new tasks for all non-deleted tasks, since we only get here without errors.
-	// Also assign IDs and times as needed.
-	newTasks := make([]*Task, len(transaction))
-	for i, diff := range transaction {
+	// Also assign IDs and times as needed. Note that deletes are always in
+	// front, so we start that far along in the transaction slice.
+	newTasks := make([]*Task, len(up.Changes))
+	for i, diff := range transaction[len(up.Deletes):] {
 		nt := diff.NewTask
 		newTasks[i] = nt
 		if nt == nil {
@@ -560,11 +569,11 @@ func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 	// Create a mutated task that shares data and ID with this one, and
 	// we'll request it to have these changes.
 	reqtask := &Task{
-		ID:            task.ID,
-		OwnerID:       claim.OwnerID,
-		Group:         claim.Group,
-		AT: -duration,
-		Data:          task.Data,
+		ID:      task.ID,
+		OwnerID: claim.OwnerID,
+		Group:   claim.Group,
+		AT:      -duration,
+		Data:    task.Data,
 	}
 
 	// Because claiming involves setting the owner and a future availability,
@@ -637,6 +646,12 @@ func (t *TaskStore) Groups() []string {
 	return resp.Val.([]string)
 }
 
+// NumTasks returns the number of tasks being managed by this store.
+func (t *TaskStore) NumTasks() int32 {
+	resp := t.sendRequest(nil, t.numTasksChan)
+	return resp.Val.(int32)
+}
+
 // Claim attempts to find one random unowned task in the specified group and
 // set the ownership to the specified owner. If successful, the newly-owned
 // tasks are returned with their AT set to now + duration (in
@@ -658,6 +673,11 @@ func (t *TaskStore) Claim(owner int32, group string, duration int64, depends []i
 func (t *TaskStore) Tasks(ids []int64) []*Task {
 	resp := t.sendRequest(ids, t.tasksChan)
 	return resp.Val.([]*Task)
+}
+
+func (t *TaskStore) Snapshotting() bool {
+	resp := t.sendRequest(nil, t.snapshottingChan)
+	return resp.Val.(bool)
 }
 
 // Snapshot tries to force a snapshot to start immediately. It only fails if
@@ -758,14 +778,10 @@ func (t *TaskStore) handle() {
 				groups = append(groups, k)
 			}
 			req.ResultChan <- response{groups, nil}
+		case req := <-t.snapshottingChan:
+			req.ResultChan <- response{t.snapshotting, nil}
 		case req := <-t.snapshotChan:
-			if t.snapshotting {
-				err := fmt.Errorf("attempted snapshot while already snapshotting")
-				req.ResultChan <- response{nil, err}
-				break // out of select case
-			}
-			err := t.snapshot()
-			req.ResultChan <- response{nil, err}
+			req.ResultChan <- response{nil, t.snapshot()}
 		case err := <-t.snapshotDoneChan:
 			if err != nil {
 				// TODO: Should this really be fatal?
@@ -789,6 +805,15 @@ func (t *TaskStore) handle() {
 				fmt.Sprintf("  num tasks: %d", len(t.tasks)+len(t.tmpTasks)-len(t.delTasks)),
 				fmt.Sprintf("  last task id: %d", t.lastTaskID))
 			req.ResultChan <- response{strings.Join(strs, "\n"), nil}
+		case req := <-t.numTasksChan:
+			// Count all tasks in the heaps. The complete task map might not be
+			// accurate depending on the state of snapshotting. This is simpler
+			// because it's always right.
+			num := 0
+			for _, h := range t.heaps {
+				num += len(h)
+			}
+			req.ResultChan <- response{num, nil}
 		case req := <-t.tasksChan:
 			ids := req.Val.([]int64)
 			tasks := make([]*Task, len(ids))

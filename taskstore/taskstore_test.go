@@ -497,3 +497,100 @@ func ExampleTaskStore_mapReduce() {
 	// 0003 mappers
 	// 0003 key
 }
+
+// TODO:
+// It would be nice to have a set of generated tests that actually hit the disk, here.
+// For that we'll need a model of invariants, preconditions, and postconditions.
+// Once those are set up, we can just fuzz it by listing all of the API
+// functions and how to generate inputs to them.
+//
+// INVARIANTS:
+// - An open taskstore can always
+// 	- Update
+// 	- Claim
+// 	- Snapshot
+// 	- Close
+//
+// OpenOpportunistic
+// - Pre: valid journaler
+// - Post:
+// 	- non-nil taskstore
+// 	- not closed
+// 	- not strict
+// 	- groups agree with journal
+// 	- tasks agree with journal
+//
+// OpenStrict
+// - Pre: valid journaler
+// - Post:
+// 	- non-nil taskstore
+// 	- not closed
+// 	- strict
+// 	- groups agree with journal
+// 	- tasks agree with journal
+//
+// Claim
+// - Pre: no unowned tasks in given group
+// - Post: no task returned
+//
+// - Pre: unowned tasks in given group
+// - Post:
+//  - task returned
+//  - is now owned by this owner ID
+//  - and has future timespec, according to requested duration
+//
+// Close
+// - Pre: -
+// - Post: Snapshot finalized, store closed
+//
+// Groups
+// - Pre: -
+// - Post: all groups that are known to be present are returned, empty groups are not present
+//
+// ListGroup
+// - Pre: -
+// - Post:
+// 	- no more than the lesser of group length and limit tasks returned (<=0 limit means entire group)
+// 	- owned tasks returned only if allowOwned is true
+// 	- all tasks returned actually exist
+//
+// NumTasks:
+// - Pre: -
+// - Post: number of total tasks returned
+//
+// Snapshot
+// - Pre: Snapshot running
+// - Post: Snapshot error - ErrAlreadySnapshotting
+//
+// - Pre: Snapshot not running
+// - Post: Snapshot running, no error
+//
+// Snapshotting
+// - Pre: -
+// - Post: returns whether snapshotting is ongoing.
+//
+// String
+// - Pre: -
+// - Post: string returned
+//
+// Tasks
+// - Pre: -
+// - Post: existing tasks returned, non-existent come back as nil entries. Result is always same length as IDs.
+//
+// Update
+// - Pre: closed
+// - Post: panic
+//
+// - Pre: All requested IDs exist in the store.
+// - Post:
+//  - return exactly one task item per requested task change (updates and adds)
+//  - All new tasks are in the task store, none of the old ones (except dependencies).
+//  - Now-empty groups no longer exist
+//  - Newly-added groups exist
+//  - New tasks have appropriate times assigned (if initially <=0, they should now be positive)
+//
+// - Pre: Some requested IDs do not exist in the store, or updates/deletes are not owned.
+// - Post:
+// 	- one error per unowned task ID
+// 	- all non-errored tasks are still in the store
+// 	- no new tasks are in the store (still has same next ID, same number of tasks, etc.)
