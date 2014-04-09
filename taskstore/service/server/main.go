@@ -37,27 +37,27 @@ var (
 	isOpportunistic = flag.Bool("opp", false, "turns on opportunistic journaling when true. This means that task updates are flushed to disk when possible. Leaving it strict means that task updates are flushed before given back to the caller.")
 )
 
-type HandlerStore struct {
+type StoreHandler struct {
 	store *taskstore.TaskStore
 }
 
-func NewHandlerStore(dir string, opportunistic bool) (*HandlerStore, error) {
-	journaler, err := journal.NewDiskLog(dir)
+func NewStoreHandler(dir string, opportunistic bool) (*StoreHandler, error) {
+	journaler, err := journal.OpenDiskLog(dir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create journal at %q: %v", dir, err)
 	}
 
-	newstoreFunc := taskstore.NewStrict
+	newstoreFunc := taskstore.OpenStrict
 	if opportunistic {
-		newstoreFunc = taskstore.NewOpportunistic
+		newstoreFunc = taskstore.OpenOpportunistic
 	}
 	store := newstoreFunc(journaler)
 
-	return &HandlerStore{store}, nil
+	return &StoreHandler{store}, nil
 }
 
 // Groups returns a list of known groups in the task store.
-func (s *HandlerStore) Groups(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) Groups(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		io.WriteString(w, "GET method required for group listing")
@@ -76,7 +76,7 @@ func (s *HandlerStore) Groups(w http.ResponseWriter, r *http.Request) {
 }
 
 // Task returns a single task, specified by ID.
-func (s *HandlerStore) Task(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) Task(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		s.getTask(w, r)
@@ -86,7 +86,7 @@ func (s *HandlerStore) Task(w http.ResponseWriter, r *http.Request) {
 }
 
 // Tasks returns tasks for the given IDs, all that are available.
-func (s *HandlerStore) Tasks(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) Tasks(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		s.getTasks(w, r)
@@ -98,7 +98,7 @@ func (s *HandlerStore) Tasks(w http.ResponseWriter, r *http.Request) {
 // Group returns a list of tasks for the specified group. It can be limited
 // to a certain number, and can optionally allow owned tasks to be returned as
 // well as unowned.
-func (s *HandlerStore) Group(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) Group(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
 		s.getGroup(w, r)
@@ -109,7 +109,7 @@ func (s *HandlerStore) Group(w http.ResponseWriter, r *http.Request) {
 
 // Update attempts to update a set of tasks, including adds, updates, deletes,
 // and depends. This is the core mutation call.
-func (s *HandlerStore) Update(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) Update(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "POST":
 		s.postUpdate(w, r)
@@ -119,7 +119,7 @@ func (s *HandlerStore) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 // Claim accepts a group name with optional limit, duration, and dependencies.
-func (s *HandlerStore) Claim(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) Claim(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "POST":
 		s.postClaim(w, r)
@@ -129,7 +129,7 @@ func (s *HandlerStore) Claim(w http.ResponseWriter, r *http.Request) {
 }
 
 // getTask returns the specified Task info, if it exists in the store.
-func (s *HandlerStore) getTask(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) getTask(w http.ResponseWriter, r *http.Request) {
 	pieces := strings.Split(r.URL.Path, "/")
 	if len(pieces) != 2 {
 		w.WriteHeader(http.StatusBadRequest)
@@ -156,7 +156,7 @@ func (s *HandlerStore) getTask(w http.ResponseWriter, r *http.Request) {
 }
 
 // getTasks returns the specified tasks, if they exist in the store.
-func (s *HandlerStore) getTasks(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) getTasks(w http.ResponseWriter, r *http.Request) {
 	pieces := strings.Split(r.URL.Path, "/")
 	if len(pieces) != 2 {
 		w.WriteHeader(http.StatusBadRequest)
@@ -187,7 +187,7 @@ func (s *HandlerStore) getTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 // getGroup returns a list of tasks for a provided group.
-func (s *HandlerStore) getGroup(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) getGroup(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	pieces := strings.Split(r.URL.Path, "/")
 	if len(pieces) != 2 {
@@ -233,7 +233,7 @@ func (s *HandlerStore) getGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 // postClaim is called when a task is to be claimed.
-func (s *HandlerStore) postClaim(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) postClaim(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	claimstr := r.Form.Get("claim")
 	if claimstr == "" {
@@ -254,7 +254,7 @@ func (s *HandlerStore) postClaim(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		uerr := err.(taskstore.UpdateError)
 		response := protocol.TaskResponse{
-			Errors: protocol.TaskResponseError(uerr.Errors),
+			Error: protocol.TaskResponseError(uerr.Errors),
 		}
 		out, jerr := json.Marshal(response)
 		if jerr != nil {
@@ -289,7 +289,7 @@ func (s *HandlerStore) postClaim(w http.ResponseWriter, r *http.Request) {
 }
 
 // postUpdate is called when a task updated is attempted. It calls taskstore.TaskStore.Update.
-func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
+func (s *StoreHandler) postUpdate(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	updatestr := r.Form.Get("update")
 	if updatestr == "" {
@@ -350,7 +350,7 @@ func (s *HandlerStore) postUpdate(w http.ResponseWriter, r *http.Request) {
 		// update errors are fine and expected. We just return an error object in that case.
 		uerr := err.(taskstore.UpdateError)
 		response := protocol.TaskResponse{
-			Errors: protocol.TaskResponseError(uerr.Errors),
+			Error: protocol.TaskResponseError(uerr.Errors),
 		}
 		out, jerr = json.Marshal(response)
 		if jerr != nil {
@@ -395,7 +395,7 @@ func main() {
 		os.Exit(-1)
 	}
 
-	store, err := NewHandlerStore(*jdir, *isOpportunistic)
+	store, err := NewStoreHandler(*jdir, *isOpportunistic)
 	if err != nil {
 		fmt.Println("failed to create a task store: %v", err)
 		os.Exit(-1)
