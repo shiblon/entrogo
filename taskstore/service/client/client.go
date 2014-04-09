@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"code.google.com/p/entrogo/taskstore/service/protocol"
@@ -41,7 +40,7 @@ func init() {
 	if n < len(buff) {
 		panic(fmt.Sprintf("Failed to read %d bytes from crypto/rand.Reader. Only read %d bytes.", len(buff), n))
 	}
-	clientID = (buff[0] << 24) | (buff[1] << 16) | (buff[2] << 8) | buff[3]
+	clientID = int32(buff[0] << 24) | int32(buff[1] << 16) | int32(buff[2] << 8) | int32(buff[3])
 }
 
 // ID returns the (hopefully unique) ID of this client instance.
@@ -67,20 +66,27 @@ func NewHTTPClient(baseURL string) *HTTPClient {
 	}
 }
 
-func (h *HTTPClient) doRequest(r *http.Request) (*httpResponse, error) {
+func (h *HTTPClient) doRequest(r *http.Request) (*http.Response, error) {
 	resp, err := h.client.Do(r)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("error status %q: %s", resp.Status, string(ioutil.ReadAll(resp.Body)))
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error status %q - also failed to get response body: %v", resp.Status, err)
+		}
+		return nil, fmt.Errorf("error status %q: %s", resp.Status, string(body))
 	}
 	return resp, nil
 }
 
 // Groups retrieves a list of group names from the task service.
 func (h *HTTPClient) Groups() ([]string, error) {
-	req := http.NewRequest("GET", fmt.Sprintf("%s/%s", h.baseURL, "group"), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/%s", h.baseURL, "group"), nil)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := h.doRequest(req)
 	if err != nil {
 		return nil, err
@@ -88,16 +94,18 @@ func (h *HTTPClient) Groups() ([]string, error) {
 
 	var groups []string
 	decoder := json.NewDecoder(resp.Body)
-	err := decoder.Decode(&groups)
-	if err != nil {
+	if err := decoder.Decode(&groups); err != nil {
 		return nil, err
 	}
 	return groups, nil
 }
 
 // Task retrieves the task for the given ID, if it exists.
-func (h *HTTPClient) Task(id int64) (protocol.TaskInfo, error) {
-	req := http.NewRequest("GET", fmt.Sprintf("%s/task/%d", h.baseURL, id), nil)
+func (h *HTTPClient) Task(id int64) (*protocol.TaskInfo, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/task/%d", h.baseURL, id), nil)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := h.doRequest(req)
 	if err != nil {
 		return nil, err
@@ -105,11 +113,10 @@ func (h *HTTPClient) Task(id int64) (protocol.TaskInfo, error) {
 
 	var task protocol.TaskInfo
 	decoder := json.NewDecoder(resp.Body)
-	err := decoder.Decode(&task)
-	if err != nil {
+	if err := decoder.Decode(&task); err != nil {
 		return nil, err
 	}
-	return task, nil
+	return &task, nil
 }
 
 // Tasks retrieves the tasks for the given list of IDs.
@@ -118,7 +125,10 @@ func (h *HTTPClient) Tasks(ids ...int64) ([]protocol.TaskInfo, error) {
 	for i, id := range ids {
 		idstrs[i] = fmt.Sprintf("%d", id)
 	}
-	req := http.NewRequest("GET", fmt.Sprintf("%s/tasks/%s", h.baseURL, strings.Join(idstrs, ",")), nil)
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s/tasks/%s", h.baseURL, strings.Join(idstrs, ",")), nil)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := h.doRequest(req)
 	if err != nil {
 		return nil, err
@@ -126,8 +136,7 @@ func (h *HTTPClient) Tasks(ids ...int64) ([]protocol.TaskInfo, error) {
 
 	var tasks []protocol.TaskInfo
 	decoder := json.NewDecoder(resp.Body)
-	err := decoder.Decode(&tasks)
-	if err != nil {
+	if err := decoder.Decode(&tasks); err != nil {
 		return nil, err
 	}
 	return tasks, nil
@@ -145,7 +154,10 @@ func (h *HTTPClient) Group(name string, limit int, owned bool) ([]protocol.TaskI
 		ownint = 1
 	}
 	query := fmt.Sprintf("%s/group/%s?limit=%d&owned=%d", h.baseURL, name, limit, ownint)
-	req := http.NewRequest("GET", query, nil)
+	req, err := http.NewRequest("GET", query, nil)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := h.doRequest(req)
 	if err != nil {
 		return nil, err
@@ -153,8 +165,7 @@ func (h *HTTPClient) Group(name string, limit int, owned bool) ([]protocol.TaskI
 
 	var tasks []protocol.TaskInfo
 	decoder := json.NewDecoder(resp.Body)
-	err := decoder.Decode(&tasks)
-	if err != nil {
+	if err := decoder.Decode(&tasks); err != nil {
 		return nil, err
 	}
 	return tasks, nil
@@ -172,7 +183,7 @@ func (h *HTTPClient) Group(name string, limit int, owned bool) ([]protocol.TaskI
 // no update occurring.
 func (h *HTTPClient) Update(adds, updates []protocol.TaskInfo, deletes, depends []int64) ([]protocol.TaskInfo, error) {
 	request := protocol.UpdateRequest{
-		ClientID: ClientID(),
+		ClientID: ID(),
 		Adds:     adds,
 		Updates:  updates,
 		Deletes:  deletes,
@@ -182,16 +193,18 @@ func (h *HTTPClient) Update(adds, updates []protocol.TaskInfo, deletes, depends 
 	if err != nil {
 		return nil, err
 	}
-	req := http.NewRequest("POST", fmt.Sprintf("%s/update", h.baseURL), bytes.NewReader(mreq))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/update", h.baseURL), bytes.NewReader(mreq))
+	if err != nil {
+		return nil, err
+	}
 	resp, err := h.doRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
-	var response protocol.UpdateResponse
+	var response protocol.TaskResponse
 	decoder := json.NewDecoder(resp.Body)
-	err := decoder.Decode(&response)
-	if err != nil {
+	if err := decoder.Decode(&response); err != nil {
 		return nil, err
 	}
 	if response.Error != nil {
@@ -212,7 +225,7 @@ func (h *HTTPClient) Update(adds, updates []protocol.TaskInfo, deletes, depends 
 // unsatisifed task constraint (e.g., a missing dependency).
 func (h *HTTPClient) Claim(group string, duration int64, depends []int64) (*protocol.TaskInfo, error) {
 	request := protocol.ClaimRequest{
-		ClientID: ClientID(),
+		ClientID: ID(),
 		Group:    group,
 		Duration: duration,
 		Depends:  depends,
@@ -221,7 +234,10 @@ func (h *HTTPClient) Claim(group string, duration int64, depends []int64) (*prot
 	if err != nil {
 		return nil, err
 	}
-	req := http.NewRequest("POST", fmt.Sprintf("%s/claim", h.baseURL), bytes.NewReader(mreq))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/claim", h.baseURL), bytes.NewReader(mreq))
+	if err != nil {
+		return nil, err
+	}
 	resp, err := h.doRequest(req)
 	if err != nil {
 		return nil, err
@@ -229,8 +245,7 @@ func (h *HTTPClient) Claim(group string, duration int64, depends []int64) (*prot
 
 	var response protocol.TaskResponse
 	decoder := json.NewDecoder(resp.Body)
-	err := decoder.Decode(&response)
-	if err != nil {
+	if err := decoder.Decode(&response); err != nil {
 		return nil, err
 	}
 	if response.Error != nil {
