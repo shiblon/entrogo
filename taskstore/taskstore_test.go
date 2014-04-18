@@ -231,8 +231,8 @@ func TestTaskStore_Update(t *testing.T) {
 	if err != nil {
 		t.Fatalf("deletion of task %v failed: %v", added[2], err)
 	}
-	if len(updated3) != 1 {
-		t.Fatalf("expected 1 update with a task deletion, got %v", updated3)
+	if len(updated3) != 0 {
+		t.Fatalf("expected 0 updated tasks, got %v", updated3)
 	}
 
 	all := make(map[int64]*Task)
