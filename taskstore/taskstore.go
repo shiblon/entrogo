@@ -811,7 +811,7 @@ func (t *TaskStore) handle() {
 			// because it's always right.
 			num := 0
 			for _, h := range t.heaps {
-				num += len(h)
+				num += h.Len()
 			}
 			req.ResultChan <- response{num, nil}
 		case req := <-t.tasksChan:
