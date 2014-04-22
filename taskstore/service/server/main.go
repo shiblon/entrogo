@@ -15,6 +15,12 @@
 // A RESTful HTTP-based task service that uses the taskstore.
 package main
 
+// NOTE:
+// This should try to obtain a lock before opening the task store. There should
+// never be more than one serice accessing a single journal directory. A nice
+// way to handle this is to use the chpst command to force a process to run
+// only if a lock is acquired.
+
 import (
 	"encoding/json"
 	"flag"
