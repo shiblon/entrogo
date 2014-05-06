@@ -484,6 +484,10 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 			uerr.Errors = append(uerr.Errors, err)
 			continue
 		}
+		// Specifying a different (or any) group is meaningless in an update,
+		// as this cannot be changed, so we just make sure that the update has
+		// the same group as the existing task before creating the update entry.
+		task.Group = ot.Group
 		transaction[i] = updateDiff{task.ID, task.Copy()}
 	}
 

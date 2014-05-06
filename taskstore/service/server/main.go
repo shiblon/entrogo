@@ -64,21 +64,12 @@ func NewStoreHandler(dir string, opportunistic bool) (*StoreHandler, error) {
 
 // Groups returns a list of known groups in the task store.
 func (s *StoreHandler) Groups(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
+	switch r.Method {
+	case "GET":
+		s.getGroups(w, r)
+	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		io.WriteString(w, "GET method required for group listing")
-		return
 	}
-	groups := s.store.Groups()
-	out, err := json.Marshal(groups)
-	if err != nil {
-		w.Header().Set("Content-Type", "text/plain")
-		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, fmt.Sprintf("Error forming json: %v", err))
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(out)
 }
 
 // Task returns a single task, specified by ID.
@@ -132,6 +123,19 @@ func (s *StoreHandler) Claim(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *StoreHandler) getGroups(w http.ResponseWriter, r *http.Request) {
+	groups := s.store.Groups()
+	out, err := json.Marshal(groups)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, fmt.Sprintf("Error forming json: %v", err))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(out)
 }
 
 // getTask returns the specified Task info, if it exists in the store.
@@ -280,6 +284,7 @@ func (s *StoreHandler) postClaim(w http.ResponseWriter, r *http.Request) {
 				Group:    task.Group,
 				Data:     string(task.Data),
 				TimeSpec: task.AT,
+				OwnerID:  task.OwnerID,
 			},
 		}
 	}
@@ -376,6 +381,7 @@ func (s *StoreHandler) postUpdate(w http.ResponseWriter, r *http.Request) {
 			Group:    t.Group,
 			Data:     string(t.Data),
 			TimeSpec: t.AT,
+			OwnerID:  t.OwnerID,
 		}
 	}
 
