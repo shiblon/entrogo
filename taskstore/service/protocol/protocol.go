@@ -21,29 +21,34 @@ import (
 )
 
 type TaskInfo struct {
-	ID    int64  `json:'id'`
-	Group string `json:'group'`
-	Data  string `json:'data'`
+	ID    int64  `json:"id"`
+	Group string `json:"group"`
+	Data  string `json:"data"`
 
 	// The TimeSpec, when positive, indicates an absolute timestamp in
 	// milliseconds since the epoch (UTC). When negative, its absolute value
 	// will be added to the current time to create an appropriate timestamp.
-	TimeSpec int64 `json:'duration'`
+	TimeSpec int64 `json:"duration"`
+
+	// The owner, though present here, will always be ignored when trying to
+	// perform an update. This is informational when obtaining tasks, not used
+	// for changing them.
+	OwnerID int32 `json:"ownerid"`
 }
 
 type UpdateRequest struct {
-	ClientID int32      `json:'clientid'`
-	Adds     []TaskInfo `json:'adds'`
-	Updates  []TaskInfo `json:'updates'`
-	Deletes  []int64    `json:'deletes'`
-	Depends  []int64    `json:'depends'`
+	ClientID int32      `json:"clientid"`
+	Adds     []TaskInfo `json:"adds"`
+	Updates  []TaskInfo `json:"updates"`
+	Deletes  []int64    `json:"deletes"`
+	Depends  []int64    `json:"depends"`
 }
 
 type ClaimRequest struct {
-	ClientID int32   `json:'clientid'`
-	Group    string  `json:'group'`
-	Duration int64   `json:'duration'`
-	Depends  []int64 `json:'depends'`
+	ClientID int32   `json:"clientid"`
+	Group    string  `json:"group"`
+	Duration int64   `json:"duration"`
+	Depends  []int64 `json:"depends"`
 }
 
 // A TaskResponse is used to return slices of tasks and errors. For example, if an UpdateRequest fails, the response will contain a list of reasons for the failure in the errors slice.
