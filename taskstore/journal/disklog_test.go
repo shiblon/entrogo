@@ -18,7 +18,9 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
+	"testing/quick"
 )
 
 func ExampleDiskLog() {
@@ -26,7 +28,7 @@ func ExampleDiskLog() {
 	fs := NewMemFS("/tmp/disklog")
 	journal, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
 	if err != nil {
-		fmt.Printf("Failed to open /tmp/disklog: %v\n", err)
+		fmt.Println(err)
 		return
 	}
 
@@ -64,6 +66,97 @@ func ExampleDiskLog() {
 	// Output:
 	//
 	// Success [2 3 5 7 11 13]
+}
+
+type record struct {
+	Ival int
+	Sval string
+	Fval float64
+	Cval struct {
+		X int
+		Y int
+	}
+}
+
+func (r record) String() string {
+	strs := []string{
+		fmt.Sprintf("\tIval: %d", r.Ival),
+		fmt.Sprintf("\tSval: %q", r.Sval),
+		fmt.Sprintf("\tFval: %f", r.Fval),
+		fmt.Sprintf("\tCval: %v", r.Cval),
+	}
+	return strings.Join(strs, "\n")
+}
+
+func (r record) Equal(other record) bool {
+	return (r.Ival == other.Ival &&
+		r.Sval == other.Sval &&
+		r.Fval == other.Fval &&
+		r.Cval.X == other.Cval.X &&
+		r.Cval.Y == other.Cval.Y)
+}
+
+func TestDiskLog(t *testing.T) {
+	f := func(records []record) bool {
+		// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
+		fs := NewMemFS("/tmp/disklog")
+		journal, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+
+		// Take the supplied random records, apply them to the journal, and
+		// ensure that we get back what we put in.
+		for _, r := range records {
+			fmt.Println("-- Appending --\n")
+			fmt.Println(r)
+			err := journal.Append(r)
+			if err != nil {
+				fmt.Println(err)
+				return false
+			}
+		}
+		err = journal.Close()
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+
+		// Now decode. Open the journal again and get the values out.
+		journal2, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+
+		decoder, err := journal2.JournalDecoder()
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		var r record
+		var i int
+		for {
+			err := decoder.Decode(&r)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				fmt.Println(err)
+				return false
+			}
+			if !r.Equal(records[i]) {
+				fmt.Printf("Bad record retrieved at %d:\nExpected\n%v\nActual\n%v\n", i, records[i], r)
+				return false
+			}
+		}
+		return true
+	}
+
+	if err := quick.Check(f, nil); err != nil {
+		t.Error(err)
+	}
 }
 
 func TestDiskLog_Rotate(t *testing.T) {
