@@ -115,6 +115,7 @@ func OpenDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 				req.resp <- d.snapshot(req.elems, req.snapresp)
 			case resp := <-d.quit:
 				resp <- d.freezeLog()
+				d.mustUnlock()
 				d.isOpen = false
 				return
 			}
@@ -131,9 +132,20 @@ func (d *DiskLog) Close() error {
 	return <-resp
 }
 
-func (d *DiskLog) mustLock() {
-	lockname := filepath.Join(d.dir, "lock")
+func (d *DiskLog) lockName() string {
+	return filepath.Join(d.dir, "lock")
+}
 
+func (d *DiskLog) mustUnlock() {
+	lockname := d.lockName()
+	err := d.fs.Unlock(lockname)
+	if err != nil {
+		panic(fmt.Sprintf("cannot cleanly close journal, failed to unlock %q: %v", lockname, err))
+	}
+}
+
+func (d *DiskLog) mustLock() {
+	lockname := d.lockName()
 	// This should protect against basic oopses on a single machine, but is not
 	// necessarily reliable. To really be reliable over a network, a consensus
 	// protocol is usually needed to ensure exclusivity.
@@ -144,7 +156,7 @@ func (d *DiskLog) mustLock() {
 	sigchan := make(chan os.Signal, 1)
 	go func() {
 		<-sigchan
-		d.fs.Remove(lockname)
+		d.fs.Unlock(lockname)
 		os.Exit(1)
 	}()
 	signal.Notify(sigchan, syscall.SIGINT, syscall.SIGKILL)

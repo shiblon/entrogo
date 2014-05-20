@@ -33,6 +33,7 @@ type FS interface {
 	Rename(oldname, newname string) error
 	Remove(name string) error
 	Lock(name string) error
+	Unlock(name string) error
 	Stat(name string) (os.FileInfo, error)
 	FindMatching(glob string) ([]string, error)
 }
@@ -72,6 +73,22 @@ func (OSFS) Lock(name string) error {
 		return err
 	}
 	f.WriteString(fmt.Sprintf("%d\n", os.Getpid()))
+	return nil
+}
+
+func (OSFS) Unlock(name string) error {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_EXCL|os.O_CREATE, 0660)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		f.Close()
+		os.Remove(name)
+	}()
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -192,6 +209,16 @@ func (m *MemFS) Lock(name string) error {
 		return os.ErrExist
 	}
 	m.Create(name)
+	return nil
+}
+
+func (m *MemFS) Unlock(name string) error {
+	defer un(lock(&m.lockmx))
+
+	if _, ok := m.files[name]; !ok {
+		return os.ErrNotExist
+	}
+	m.Remove(name)
 	return nil
 }
 
