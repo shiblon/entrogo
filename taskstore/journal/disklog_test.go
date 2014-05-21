@@ -17,10 +17,13 @@ package journal
 import (
 	"fmt"
 	"io"
+	"math/rand"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/quick"
+	"time"
 )
 
 func ExampleDiskLog() {
@@ -97,6 +100,11 @@ func (r record) Equal(other record) bool {
 }
 
 func TestDiskLog(t *testing.T) {
+	config := &quick.Config{
+		MaxCount: 500,
+		Rand: rand.New(rand.NewSource(time.Now().Unix())),
+	}
+
 	f := func(records []record) bool {
 		// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
 		fs := NewMemFS("/tmp/disklog")
@@ -109,8 +117,6 @@ func TestDiskLog(t *testing.T) {
 		// Take the supplied random records, apply them to the journal, and
 		// ensure that we get back what we put in.
 		for _, r := range records {
-			fmt.Println("-- Appending --\n")
-			fmt.Println(r)
 			err := journal.Append(r)
 			if err != nil {
 				fmt.Println(err)
@@ -135,26 +141,138 @@ func TestDiskLog(t *testing.T) {
 			fmt.Println(err)
 			return false
 		}
-		var r record
 		var i int
 		for {
+			var r record
 			err := decoder.Decode(&r)
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				fmt.Println(err)
+				fmt.Printf("decode failure at record %d: %v\n", err)
 				return false
 			}
 			if !r.Equal(records[i]) {
 				fmt.Printf("Bad record retrieved at %d:\nExpected\n%v\nActual\n%v\n", i, records[i], r)
 				return false
 			}
+			i++
 		}
 		return true
 	}
 
-	if err := quick.Check(f, nil); err != nil {
+	if err := quick.Check(f, config); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestDiskLog_Concurrent(t *testing.T) {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+	type result struct {
+		id  int
+		err error
+	}
+
+	type idrec struct {
+		ID int
+		R  *record
+	}
+
+	config := &quick.Config{
+		MaxCount: 1000,
+		Rand: rand.New(rand.NewSource(time.Now().Unix())),
+	}
+
+	f := func(records []record) bool {
+		// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
+		fs := NewMemFS("/tmp/disklog")
+		journal, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+
+		results := make(chan result, len(records))
+
+		// Take the supplied random records, apply them to the journal, and
+		// ensure that we get back what we put in. Except this time, we do each
+		// one in a new goroutine, then test that there is a serialization that
+		// actually works.
+		for i := range records {
+			r := idrec{i, &records[i]}
+			go func() {
+				err := journal.Append(r)
+				if err != nil {
+					fmt.Println(err)
+					results <- result{r.ID, err}
+					return
+				}
+				results <- result{r.ID, nil}
+			}()
+		}
+
+		for i := 0; i < len(records); i++ {
+			res := <-results
+			if res.err != nil {
+				fmt.Println(res.id, res.err)
+				return false
+			}
+		}
+
+		err = journal.Close()
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+
+		// Now decode. Open the journal again and get the values out, checking
+		// that there exists a serialization that gives us these results (no
+		// corruption, all records reappear).
+		journal2, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+
+		remaining := make(map[int]struct{})
+		for i := range records {
+			remaining[i] = struct{}{}
+		}
+
+		decoder, err := journal2.JournalDecoder()
+		if err != nil {
+			fmt.Println(err)
+			return false
+		}
+		for {
+			var r idrec
+			err := decoder.Decode(&r)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				fmt.Printf("decode failure: %v\n", err)
+				return false
+			}
+			if _, ok := remaining[r.ID]; !ok {
+				fmt.Printf("got record %d twice\n", r.ID)
+				return false
+			}
+			delete(remaining, r.ID)
+
+			if !r.R.Equal(records[r.ID]) {
+				fmt.Printf("Bad record retrieved at %d:\nExpected\n%v\nActual\n%v\n", r.ID, records[r.ID], r.R)
+				return false
+			}
+		}
+		if len(remaining) != 0 {
+			fmt.Printf("not all records retrieved: %v\n", remaining)
+			return false
+		}
+		return true
+	}
+
+	if err := quick.Check(f, config); err != nil {
 		t.Error(err)
 	}
 }
@@ -300,6 +418,7 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 	}
 
 	// Then ensure that we still have all the data AND that we got the unexpected EOF.
+	fmt.Println("-- UnexpectedEOF is expected --")
 	for i, d := range vals {
 		if d != data[i] {
 			t.Fatalf("Expected %v, got %v", data, vals)

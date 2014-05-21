@@ -114,9 +114,10 @@ func OpenDiskLogInjectFS(dir string, fs FS) (*DiskLog, error) {
 			case req := <-d.snap:
 				req.resp <- d.snapshot(req.elems, req.snapresp)
 			case resp := <-d.quit:
-				resp <- d.freezeLog()
+				err := d.freezeLog()
 				d.mustUnlock()
 				d.isOpen = false
+				resp <- err
 				return
 			}
 		}
