@@ -33,6 +33,9 @@ import (
 
 var (
 	ErrNotOpen = errors.New("journal is not open")
+
+	// Logf is a function used to log warnings, etc. It can be overridden for
+	// e.g., testing log output.
 	Logf = func(fstr string, vals ...interface{}) {
 		log.Printf(fstr, vals...)
 	}

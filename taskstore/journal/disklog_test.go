@@ -15,6 +15,7 @@
 package journal
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"math/rand"
@@ -23,12 +24,29 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 	"testing/quick"
 	"time"
 )
+
+var (
+	logBuffer bytes.Buffer
+)
+
+func init() {
+	// Override the Logf function to write to a buffer instead of stdout.
+	Logf = func(fstr string, vals ...interface{}) {
+		now := time.Now().Format("2006/01/02 15:05:05")
+		s := fmt.Sprintf("%s %s", now, fmt.Sprintf(fstr, vals))
+		if !strings.HasSuffix(s, "\n") {
+			s += "\n"
+		}
+		logBuffer.WriteString(s)
+	}
+}
 
 func ExampleDiskLog() {
 	// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
@@ -469,13 +487,15 @@ func TestDiskLog_Decode_Corrupt(t *testing.T) {
 	}
 
 	// Then ensure that we still have all the data AND that we got the unexpected EOF.
-	fmt.Println("-- UnexpectedEOF is expected --")
 	for i, d := range vals {
 		if d != data[i] {
-			t.Fatalf("Expected %v, got %v", data, vals)
+			t.Fatalf("expected\n\t%v\ngot\n\t%v", data, vals)
 		}
 	}
-	// TODO: ensure that the log receives an unexpected EOF warning message.
+	// Check for the unexpected EOF error.
+	if re := regexp.MustCompile(` journal file \[.*\] has an unexpected EOF\n`); !re.Match(logBuffer.Bytes()) {
+		t.Fatalf("expected 'unexpected EOF' error, did not see it. Log follows:\n%q", logBuffer.String())
+	}
 }
 
 func TestDiskLog_Snapshot(t *testing.T) {
