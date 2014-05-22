@@ -229,8 +229,11 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 
 		for elem := range elems {
 			if err := encoder.Encode(elem); err != nil {
-				resp <- fmt.Errorf("snapshot failed to encode element %#v: %v", elem, err)
-				file.Close() // Ignore the error - we can't do anything with it anyway.
+				errtxt := fmt.Sprintf("snapshot failed to encode element %#v: %v", elem, err)
+				if err := file.Close(); err != nil {
+					errtxt += fmt.Sprintf(" -- also failed to close file %q: %v", file.Name(), err)
+				}
+				resp <- errors.New(errtxt)
 				return
 			}
 		}
@@ -499,7 +502,11 @@ func (d *gobMultiDecoder) newGobDecoder(fname string) (*gob.Decoder, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close() // Safe to discard error. Only opened for read.
+	defer func() {
+		if err := file.Close(); err != nil {
+			panic(fmt.Sprintf("error closing file opened only for reading. should never happen: %v", err))
+		}
+	}()
 	var buffer bytes.Buffer
 	if _, err := buffer.ReadFrom(file); err != nil {
 		return nil, err
