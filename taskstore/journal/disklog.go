@@ -15,6 +15,7 @@
 package journal
 
 import (
+	"bytes"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -470,7 +471,6 @@ type gobMultiDecoder struct {
 	filenames []string
 	cur       int
 
-	file    File
 	decoder *gob.Decoder
 }
 
@@ -478,22 +478,46 @@ func newGobMultiDecoder(fs FS, filenames ...string) (*gobMultiDecoder, error) {
 	if len(filenames) == 0 {
 		return nil, fmt.Errorf("gob multidecoder needs at least one file")
 	}
-	f, err := fs.Open(filenames[0])
-	if err != nil {
-		return nil, fmt.Errorf("could not open file %q to create a multidecoder: %v", filenames[0], err)
-	}
 	return &gobMultiDecoder{
+		cur:       0,
 		fs:        fs,
 		filenames: filenames,
-		file:      f,
-		decoder:   gob.NewDecoder(f),
+		decoder:   nil,
 	}, nil
+}
+
+// newGobDecoder loads the file into memory and creates a gob.Decoder from it.
+// As we are dealing with log files, and they really should not have any reason
+// to get individually huge, it is safer and simpler to just load the file into
+// RAM and the quickly close it instead of relying on the caller to consume all
+// of the records quickly.
+func (d *gobMultiDecoder) newGobDecoder(fname string) (*gob.Decoder, error) {
+	file, err := d.fs.Open(fname)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close() // Safe to discard error. Only opened for read.
+	var buffer bytes.Buffer
+	if _, err := buffer.ReadFrom(file); err != nil {
+		return nil, err
+	}
+	return gob.NewDecoder(&buffer), nil
 }
 
 // Decode runs the decode function on each file in turn, skipping records that
 // produce an ErrUnexpectedEOF. When we checksum records, it will also stop on
 // those and verify that they are each the last such in their respective files.
 func (d *gobMultiDecoder) Decode(val interface{}) error {
+	// This only happens on the first call.
+	if d.decoder == nil && d.cur == 0 {
+		name := d.filenames[d.cur]
+		decoder, err := d.newGobDecoder(name)
+		if err != nil {
+			log.Printf("failed to create decoder for file %q: %v", name, err)
+			return err
+		}
+		d.decoder = decoder
+	}
 	err := d.decoder.Decode(val)
 	for err == io.EOF || err == io.ErrUnexpectedEOF {
 		if err == io.ErrUnexpectedEOF {
@@ -508,17 +532,15 @@ func (d *gobMultiDecoder) Decode(val interface{}) error {
 				return io.ErrUnexpectedEOF
 			}
 		}
-		d.cur++
-		if d.cur >= len(d.filenames) {
+		if d.cur++; d.cur >= len(d.filenames) {
 			return io.EOF // really and truly finished, now.
 		}
 		name := d.filenames[d.cur]
-		d.file, err = d.fs.Open(name)
+		d.decoder, err = d.newGobDecoder(d.filenames[d.cur])
 		if err != nil {
-			log.Printf("failed journal decode for file %q: %v", name, err)
+			log.Printf("failed to create decoder for file %q: %v", name, err)
 			return err
 		}
-		d.decoder = gob.NewDecoder(d.file)
 		err = d.decoder.Decode(val)
 	}
 	return err
