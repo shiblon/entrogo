@@ -216,7 +216,6 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 	}
 	encoder := gob.NewEncoder(file)
 	go func() {
-		defer file.Close()
 		// make sure we consume all of them to play nicely with the producer.
 		defer func() {
 			num := 0
@@ -231,10 +230,14 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		for elem := range elems {
 			if err := encoder.Encode(elem); err != nil {
 				resp <- fmt.Errorf("snapshot failed to encode element %#v: %v", elem, err)
+				file.Close() // Ignore the error - we can't do anything with it anyway.
 				return
 			}
 		}
-		file.Close()
+		if err := file.Close(); err != nil {
+			resp <- fmt.Errorf("failed to close snapshot file %q: %v", snapname, err)
+			return
+		}
 
 		// Now we indicate that the file is finished by renaming it.
 		if err := d.fs.Rename(snapname, donename); err != nil {
