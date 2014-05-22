@@ -33,6 +33,9 @@ import (
 
 var (
 	ErrNotOpen = errors.New("journal is not open")
+	Logf = func(fstr string, vals ...interface{}) {
+		log.Printf(fstr, vals...)
+	}
 )
 
 const (
@@ -223,7 +226,7 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 				num++
 			}
 			if num > 0 {
-				log.Printf("consumed but did not snapshot %d element(s)", num)
+				Logf("consumed but did not snapshot %d element(s)", num)
 			}
 		}()
 
@@ -253,11 +256,11 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		workglob := filepath.Join(d.dir, "*.*.log.working")
 		donenames, err := d.fs.FindMatching(doneglob)
 		if err != nil {
-			log.Printf("finished name glob %q failed: %v", doneglob, err)
+			Logf("finished name glob %q failed: %v", doneglob, err)
 		}
 		worknames, err := d.fs.FindMatching(workglob)
 		if err != nil {
-			log.Printf("working name glob %q failed: %v", workglob, err)
+			Logf("working name glob %q failed: %v", workglob, err)
 		}
 		names := make([]string, 0, len(donenames)+len(worknames))
 		names = append(names, donenames...)
@@ -268,7 +271,7 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 		for _, name := range names {
 			ts, err := TSFromName(name)
 			if err != nil {
-				log.Printf("skipping unknown name format %q: %v", name, err)
+				Logf("skipping unknown name format %q: %v", name, err)
 				continue
 			}
 			if ts > maxts {
@@ -283,7 +286,7 @@ func (d *DiskLog) snapshot(elems <-chan interface{}, resp chan<- error) error {
 				obsname = fmt.Sprintf("%s.obsolete", name)
 			}
 			if err := d.fs.Rename(name, obsname); err != nil {
-				log.Printf("failed to rename %q to %q: %v\n", name, obsname, err)
+				Logf("failed to rename %q to %q: %v\n", name, obsname, err)
 				continue
 			}
 		}
@@ -416,7 +419,7 @@ func (d *DiskLog) latestFrozenSnapshot() (int64, string, error) {
 	for _, name := range names {
 		ts, err := TSFromName(name)
 		if err != nil {
-			log.Printf("can't find id in in %q: %v", name, err)
+			Logf("can't find id in in %q: %v", name, err)
 			continue
 		}
 		if ts > bestts {
@@ -523,7 +526,7 @@ func (d *gobMultiDecoder) Decode(val interface{}) error {
 		name := d.filenames[d.cur]
 		decoder, err := d.newGobDecoder(name)
 		if err != nil {
-			log.Printf("failed to create decoder for file %q: %v", name, err)
+			Logf("failed to create decoder for file %q: %v", name, err)
 			return err
 		}
 		d.decoder = decoder
@@ -531,7 +534,7 @@ func (d *gobMultiDecoder) Decode(val interface{}) error {
 	err := d.decoder.Decode(val)
 	for err == io.EOF || err == io.ErrUnexpectedEOF {
 		if err == io.ErrUnexpectedEOF {
-			log.Printf("journal file %q has an unexpected EOF", d.filenames[d.cur])
+			Logf("journal file %q has an unexpected EOF", d.filenames[d.cur])
 			// Try to read one more time, ensure we get an actual EOF.
 			v := struct{}{}
 			err := d.decoder.Decode(&v)
@@ -548,7 +551,7 @@ func (d *gobMultiDecoder) Decode(val interface{}) error {
 		name := d.filenames[d.cur]
 		d.decoder, err = d.newGobDecoder(d.filenames[d.cur])
 		if err != nil {
-			log.Printf("failed to create decoder for file %q: %v", name, err)
+			Logf("failed to create decoder for file %q: %v", name, err)
 			return err
 		}
 		err = d.decoder.Decode(val)
