@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"os"
 	"os/user"
+	"path"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -168,6 +169,18 @@ func TestDiskLog(t *testing.T) {
 	}
 }
 
+type JournalDirName string
+
+func (JournalDirName) Generate(rand *rand.Rand, size int) reflect.Value {
+	username := "UnknownUser"
+	if u, err := user.Current(); err == nil {
+		username = u.Username
+	}
+	dir := fmt.Sprintf("/tmp/test/%s/taskstore/%d-%d-%d", username, os.Getpid(), time.Now().Unix(), rand.Int())
+
+	return reflect.ValueOf(JournalDirName(dir))
+}
+
 func TestDiskLog_Concurrent(t *testing.T) {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	type result struct {
@@ -183,11 +196,10 @@ func TestDiskLog_Concurrent(t *testing.T) {
 	config := &quick.Config{
 		Rand: rand.New(rand.NewSource(time.Now().Unix())),
 		Values: func(values []reflect.Value, rand *rand.Rand) {
-			username := "UnknownUser"
-			if u, err := user.Current(); err == nil {
-				username = u.Username
+			dir := JournalDirName("/tmp/test/INVALID-taskstore")
+			if dval, ok := quick.Value(reflect.TypeOf(JournalDirName("")), rand); ok {
+				dir = dval.Interface().(JournalDirName)
 			}
-			dir := fmt.Sprintf("/tmp/test/%s/taskstore/%d-%d-%d", username, os.Getpid(), time.Now().Unix(), rand.Int())
 			values[0] = reflect.ValueOf(dir)
 			recs, ok := quick.Value(reflect.TypeOf([]record{}), rand)
 			if !ok {
@@ -203,25 +215,25 @@ func TestDiskLog_Concurrent(t *testing.T) {
 		},
 	}
 
-	f := func(dir string, records []record, rotateIndex int) bool {
+	f := func(dir JournalDirName, records []record, rotateIndex int) bool {
 		// Make sure the directory exists
-		if err := os.MkdirAll(dir, 0770); err != nil {
+		// fs := OSFS{}
+		fs := NewMemFS(string(dir))
+		if err := fs.MkdirAll(string(dir), 0770); err != nil {
 			fmt.Println(err)
 			return false
 		}
 		defer func() {
-			if !strings.HasPrefix(dir, "/tmp/test/") {
+			if !strings.HasPrefix(string(dir), "/tmp/test/") {
 				fmt.Println("failed to remove directory - not in /tmp/test - considered dangerous")
 				return
 			}
-			if err := os.RemoveAll(dir); err != nil {
+			if err := fs.RemoveAll(string(dir)); err != nil {
 				fmt.Println(err)
 			}
 		}()
 
-		fs := OSFS{}
-		// fs := NewMemFS(dir)
-		journal, err := OpenDiskLogInjectFS(dir, fs)
+		journal, err := OpenDiskLogInjectFS(string(dir), fs)
 		if err != nil {
 			fmt.Println(err)
 			return false
@@ -267,7 +279,7 @@ func TestDiskLog_Concurrent(t *testing.T) {
 		// Now decode. Open the journal again and get the values out, checking
 		// that there exists a serialization that gives us these results (no
 		// corruption, all records reappear).
-		journal2, err := OpenDiskLogInjectFS(dir, fs)
+		journal2, err := OpenDiskLogInjectFS(string(dir), fs)
 		if err != nil {
 			fmt.Println(err)
 			return false
@@ -471,65 +483,102 @@ func TestDiskLog_Snapshot(t *testing.T) {
 		S string
 		I int
 	}
-	data := []dtype{
-		{"blah", 3},
-		{"hi", 1},
-		{"hello", 2},
-	}
 
-	fs := NewMemFS("/myfs")
-	journal, err := OpenDiskLogInjectFS("/myfs", fs)
-	if err != nil {
-		t.Fatalf("failed to create journal: %v", err)
-	}
-
-	// We don't have to append to the journal to create a snapshot, so we don't
-	// bother. Just start a snapshot and provide the right data.
-	recs := make(chan interface{}, 1)
-	resp := make(chan error, 1)
-	go func() {
-		defer close(recs)
-		for _, d := range data {
-			recs <- d
+	f := func(dir JournalDirName, data []dtype, appendData []dtype) bool {
+		// fs := NewMemFS("/myfs")
+		fs := OSFS{}
+		// Make sure the directory exists
+		if err := fs.MkdirAll(string(dir), 0770); err != nil {
+			fmt.Println(err)
+			return false
 		}
-	}()
-	if err := journal.StartSnapshot(recs, resp); err != nil {
-		t.Fatalf("error starting snapshot: %v", err)
-	}
-
-	if err := <-resp; err != nil {
-		t.Fatalf("error in response to snapshot request: %v", err)
-	}
-
-	// Now the snapshot is complete. Ensure that it is there.
-	names, err := fs.FindMatching("/myfs/*.*.snapshot")
-	if len(names) != 1 {
-		t.Fatalf("expected 1 snapshot, found %d: %v", len(names), names)
-	}
-
-	// And replay the data.
-	decoder, err := journal.SnapshotDecoder()
-	if err != nil {
-		t.Fatalf("error getting snapshot decoder: %v", err)
-	}
-
-	replayed := make([]dtype, 0, len(data))
-	var val dtype
-	for {
-		err := decoder.Decode(&val)
-		if err == io.EOF {
-			break
-		}
+		journal, err := OpenDiskLogInjectFS(string(dir), fs)
 		if err != nil {
-			t.Fatalf("error decoding value in snapshot: %v", err)
+			fmt.Printf("failed to create journal: %v", err)
+			return false
 		}
-		replayed = append(replayed, val)
+
+		// Set off some appends before we request a snapshot. The snapshot
+		// should pause them while it rotates the log, then allow them to
+		// simply continue. We do this testing to ensure that we don't have
+		// crashes due to race conditions.
+		appendErrorChan := make(chan error, 1)
+		go func() {
+			defer close(appendErrorChan)
+			for _, d := range appendData {
+				if err := journal.Append(d); err != nil {
+					appendErrorChan <- err
+					return
+				}
+			}
+		}()
+
+		recs := make(chan interface{}, 1)
+		resp := make(chan error, 1)
+		go func() {
+			defer close(recs)
+			for _, d := range data {
+				recs <- d
+			}
+		}()
+		if err := journal.StartSnapshot(recs, resp); err != nil {
+			fmt.Printf("error starting snapshot: %v", err)
+			return false
+		}
+
+		if err := <-resp; err != nil {
+			fmt.Printf("error in response to snapshot request: %v", err)
+			return false
+		}
+
+		// Now the snapshot is complete. Ensure that it is there.
+		names, err := fs.FindMatching(path.Join(string(dir), "*.*.snapshot"))
+		if len(names) != 1 {
+			fmt.Printf("expected 1 snapshot, found %d: %v", len(names), names)
+			return false
+		}
+
+		// And replay the data.
+		decoder, err := journal.SnapshotDecoder()
+		if err != nil {
+			fmt.Printf("error getting snapshot decoder: %v", err)
+			return false
+		}
+
+		replayed := make([]dtype, 0, len(data))
+		for {
+			var val dtype
+			err := decoder.Decode(&val)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				fmt.Printf("error decoding value in snapshot: %v", err)
+				return false
+			}
+			replayed = append(replayed, val)
+		}
+
+		// And finally test that we have equality.
+		for i, d := range data {
+			if d != replayed[i] {
+				fmt.Printf("expected\n\t%v\ngot\n\t%v on replay", data, replayed)
+				return false
+			}
+		}
+
+		select {
+		case err := <-appendErrorChan:
+			if err != nil {
+				fmt.Printf("error appending to journal: %v", err)
+				return false
+			}
+		default:
+		}
+		return true
 	}
 
-	// And finally test that we have equality.
-	for i, d := range data {
-		if d != replayed[i] {
-			t.Fatalf("expected %v, got %v on replay", data, replayed)
-		}
+	if err := quick.Check(f, nil); err != nil {
+		t.Error(err)
 	}
 }
