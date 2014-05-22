@@ -104,7 +104,6 @@ func (r record) Equal(other record) bool {
 
 func TestDiskLog(t *testing.T) {
 	config := &quick.Config{
-		MaxCount: 100, // Keep well below max file handle limit
 		Rand: rand.New(rand.NewSource(time.Now().Unix())),
 	}
 
@@ -182,7 +181,6 @@ func TestDiskLog_Concurrent(t *testing.T) {
 	}
 
 	config := &quick.Config{
-		MaxCount: 1000,
 		Rand: rand.New(rand.NewSource(time.Now().Unix())),
 		Values: func(values []reflect.Value, rand *rand.Rand) {
 			username := "UnknownUser"

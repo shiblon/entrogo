@@ -40,6 +40,7 @@ type FS interface {
 
 type File interface {
 	io.ReadWriteCloser
+	Name() string
 	Sync() error
 }
 
@@ -118,6 +119,10 @@ func (f *memFile) Close() error {
 
 func (f *memFile) Sync() error {
 	return nil
+}
+
+func (f *memFile) Name() string {
+	return f.name
 }
 
 type memFileInfo struct {
