@@ -32,7 +32,10 @@ type FS interface {
 	Open(name string) (File, error)
 	Rename(oldname, newname string) error
 	Remove(name string) error
+	RemoveAll(dirname string) error
 	Lock(name string) error
+	Mkdir(name string, perm os.FileMode) error
+	MkdirAll(name string, perm os.FileMode) error
 	Unlock(name string) error
 	Stat(name string) (os.FileInfo, error)
 	FindMatching(glob string) ([]string, error)
@@ -54,12 +57,20 @@ func (OSFS) Create(name string) (File, error) {
 	return os.Create(name)
 }
 
+func (OSFS) Getpid() int {
+	return os.Getpid()
+}
+
 func (OSFS) Rename(oldname, newname string) error {
 	return os.Rename(oldname, newname)
 }
 
 func (OSFS) Remove(name string) error {
 	return os.Remove(name)
+}
+
+func (OSFS) RemoveAll(dirname string) error {
+	return os.RemoveAll(dirname)
 }
 
 func (OSFS) Lock(name string) error {
@@ -76,6 +87,14 @@ func (OSFS) Lock(name string) error {
 	}
 	f.WriteString(fmt.Sprintf("%d\n", os.Getpid()))
 	return nil
+}
+
+func (OSFS) Mkdir(name string, perm os.FileMode) error {
+	return os.Mkdir(name, perm)
+}
+
+func (OSFS) MkdirAll(name string, perm os.FileMode) error {
+	return os.MkdirAll(name, perm)
 }
 
 func (OSFS) Unlock(name string) error {
@@ -210,6 +229,25 @@ func (m *MemFS) Remove(name string) error {
 	return nil
 }
 
+func (m *MemFS) RemoveAll(dirname string) error {
+	if !strings.HasSuffix(dirname, "/") {
+		dirname += "/"
+	}
+	var toRemove []string
+	for k := range m.files {
+		if strings.HasPrefix(k, dirname) {
+			toRemove = append(toRemove, k)
+		}
+	}
+	for _, name := range toRemove {
+		err := m.Remove(name)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *MemFS) Lock(name string) error {
 	defer un(lock(&m.lockmx))
 
@@ -217,6 +255,18 @@ func (m *MemFS) Lock(name string) error {
 		return os.ErrExist
 	}
 	m.Create(name)
+	return nil
+}
+
+func (m *MemFS) Mkdir(name string, perm os.FileMode) error {
+	now := time.Now()
+	m.files[name] = &memFile{name: name, modtime: now, isdir: true}
+	return nil
+}
+
+func (m *MemFS) MkdirAll(name string, perm os.FileMode) error {
+	now := time.Now()
+	m.files[name] = &memFile{name: name, modtime: now, isdir: true}
 	return nil
 }
 
