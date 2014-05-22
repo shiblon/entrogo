@@ -66,6 +66,7 @@ func (OSFS) Lock(name string) error {
 	if err != nil {
 		return err
 	}
+	defer func() { f.Close() }()
 	// non-blocking exclusive lock
 	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err != nil {
@@ -77,7 +78,7 @@ func (OSFS) Lock(name string) error {
 }
 
 func (OSFS) Unlock(name string) error {
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_EXCL|os.O_CREATE, 0660)
+	f, err := os.Open(name)
 	if err != nil {
 		return err
 	}
@@ -85,8 +86,10 @@ func (OSFS) Unlock(name string) error {
 		f.Close()
 		os.Remove(name)
 	}()
-	err = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	if err != nil {
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+		return err
+	}
+	if err := os.Remove(name); err != nil {
 		return err
 	}
 	return nil

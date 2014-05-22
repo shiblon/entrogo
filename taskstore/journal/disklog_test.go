@@ -18,7 +18,10 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"os"
+	"os/user"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -101,7 +104,7 @@ func (r record) Equal(other record) bool {
 
 func TestDiskLog(t *testing.T) {
 	config := &quick.Config{
-		MaxCount: 500,
+		MaxCount: 100, // Keep well below max file handle limit
 		Rand: rand.New(rand.NewSource(time.Now().Unix())),
 	}
 
@@ -181,12 +184,46 @@ func TestDiskLog_Concurrent(t *testing.T) {
 	config := &quick.Config{
 		MaxCount: 1000,
 		Rand: rand.New(rand.NewSource(time.Now().Unix())),
+		Values: func(values []reflect.Value, rand *rand.Rand) {
+			username := "UnknownUser"
+			if u, err := user.Current(); err == nil {
+				username = u.Username
+			}
+			dir := fmt.Sprintf("/tmp/test/%s/taskstore/%d-%d-%d", username, os.Getpid(), time.Now().Unix(), rand.Int())
+			values[0] = reflect.ValueOf(dir)
+			recs, ok := quick.Value(reflect.TypeOf([]record{}), rand)
+			if !ok {
+				panic("failed to create value for list of records")
+			}
+			values[1] = recs
+			l := recs.Len()
+			if l > 0 {
+				values[2] = reflect.ValueOf(rand.Intn(values[0].Len()))
+			} else {
+				values[2] = reflect.ValueOf(0)
+			}
+		},
 	}
 
-	f := func(records []record) bool {
-		// Open up the log in directory "/tmp/disklog". Will create an error if it does not exist.
-		fs := NewMemFS("/tmp/disklog")
-		journal, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
+	f := func(dir string, records []record, rotateIndex int) bool {
+		// Make sure the directory exists
+		if err := os.MkdirAll(dir, 0770); err != nil {
+			fmt.Println(err)
+			return false
+		}
+		defer func() {
+			if !strings.HasPrefix(dir, "/tmp/test/") {
+				fmt.Println("failed to remove directory - not in /tmp/test - considered dangerous")
+				return
+			}
+			if err := os.RemoveAll(dir); err != nil {
+				fmt.Println(err)
+			}
+		}()
+
+		fs := OSFS{}
+		// fs := NewMemFS(dir)
+		journal, err := OpenDiskLogInjectFS(dir, fs)
 		if err != nil {
 			fmt.Println(err)
 			return false
@@ -201,13 +238,17 @@ func TestDiskLog_Concurrent(t *testing.T) {
 		for i := range records {
 			r := idrec{i, &records[i]}
 			go func() {
-				err := journal.Append(r)
-				if err != nil {
-					fmt.Println(err)
-					results <- result{r.ID, err}
+				out := result{r.ID, nil}
+				defer func() { results <- out }()
+
+				if out.err = journal.Append(r); out.err != nil {
 					return
 				}
-				results <- result{r.ID, nil}
+				if r.ID == rotateIndex {
+					if out.err = journal.Rotate(); out.err != nil {
+						return
+					}
+				}
 			}()
 		}
 
@@ -228,7 +269,7 @@ func TestDiskLog_Concurrent(t *testing.T) {
 		// Now decode. Open the journal again and get the values out, checking
 		// that there exists a serialization that gives us these results (no
 		// corruption, all records reappear).
-		journal2, err := OpenDiskLogInjectFS("/tmp/disklog", fs)
+		journal2, err := OpenDiskLogInjectFS(dir, fs)
 		if err != nil {
 			fmt.Println(err)
 			return false
