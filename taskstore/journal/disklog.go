@@ -140,6 +140,10 @@ func (d *DiskLog) Close() error {
 	return <-resp
 }
 
+func (d *DiskLog) IsOpen() bool {
+	return d.isOpen
+}
+
 func (d *DiskLog) lockName() string {
 	return filepath.Join(d.dir, "lock")
 }

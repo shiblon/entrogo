@@ -33,6 +33,8 @@ import (
 
 var (
 	ErrAlreadySnapshotting = errors.New("already snapshotting")
+	ErrJournalClosed       = errors.New("journal closed")
+	ErrAlreadyClosed       = errors.New("already closed")
 )
 
 const (
@@ -82,6 +84,7 @@ type TaskStore struct {
 	numTasksChan     chan request
 	tasksChan        chan request
 	closeChan        chan request
+	isOpenChan       chan request
 }
 
 // OpenStrict returns a TaskStore with journaling done synchronously
@@ -91,7 +94,7 @@ type TaskStore struct {
 // Use this if you don't mind slower mutations and really need committed tasks
 // to stay committed under all circumstances. In particular, if task execution
 // is not idempotent, this is the right one to use.
-func OpenStrict(journaler journal.Interface) *TaskStore {
+func OpenStrict(journaler journal.Interface) (*TaskStore, error) {
 	return openTaskStoreHelper(journaler, false)
 }
 
@@ -101,11 +104,28 @@ func OpenStrict(journaler journal.Interface) *TaskStore {
 // crash, and find that recently committed tasks are lost.
 // If task execution is idempotent, this is safe, and is much faster, as it
 // writes to disk when it gets a chance.
-func OpenOpportunistic(journaler journal.Interface) *TaskStore {
+func OpenOpportunistic(journaler journal.Interface) (*TaskStore, error) {
 	return openTaskStoreHelper(journaler, true)
 }
 
-func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskStore {
+func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) (*TaskStore, error) {
+	if journaler == nil || !journaler.IsOpen() {
+		return nil, ErrJournalClosed
+	}
+
+	var err error
+
+	// Before starting our handler and allowing requests to come in, try
+	// reading the latest snapshot and journals.
+	sdec, err := journaler.SnapshotDecoder()
+	if err != nil && err != io.EOF {
+		return nil, fmt.Errorf("snapshot error: %v", err)
+	}
+	jdec, err := journaler.JournalDecoder()
+	if err != nil && err != io.EOF {
+		return nil, fmt.Errorf("journar error: %v", err)
+	}
+
 	ts := &TaskStore{
 		journaler: journaler,
 
@@ -125,19 +145,7 @@ func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskS
 		numTasksChan:     make(chan request),
 		tasksChan:        make(chan request),
 		closeChan:        make(chan request),
-	}
-
-	var err error
-
-	// Before starting our handler and allowing requests to come in, try
-	// reading the latest snapshot and journals.
-	sdec, err := journaler.SnapshotDecoder()
-	if err != nil && err != io.EOF {
-		panic(fmt.Sprintf("snapshot error: %v", err))
-	}
-	jdec, err := journaler.JournalDecoder()
-	if err != nil && err != io.EOF {
-		panic(fmt.Sprintf("journal error: %v", err))
+		isOpenChan:       make(chan request),
 	}
 
 	// Read the snapshot.
@@ -145,7 +153,7 @@ func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskS
 	err = sdec.Decode(task)
 	for err != io.EOF {
 		if _, ok := ts.tasks[task.ID]; ok {
-			panic(fmt.Sprintf("can't happen - two tasks with same ID %d in snapshot", task.ID))
+			return nil, fmt.Errorf("can't happen - two tasks with same ID %d in snapshot", task.ID)
 		}
 		ts.tasks[task.ID] = task
 		if ts.lastTaskID < task.ID {
@@ -160,7 +168,7 @@ func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskS
 		task = new(Task)
 		err = sdec.Decode(task)
 		if err != nil && err != io.EOF {
-			panic(fmt.Sprintf("corrupt snapshot: %v", err))
+			return nil, fmt.Errorf("corrupt snapshot: %v", err)
 		}
 	}
 
@@ -178,24 +186,28 @@ func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) *TaskS
 		if err == io.ErrUnexpectedEOF {
 			log.Println("Found unexpected EOF in journal stream. Continuing.")
 		} else if err != nil && err != io.EOF {
-			panic(fmt.Sprintf("corrupt journal: %v", err))
+			return nil, fmt.Errorf("corrupt journal: %v", err)
 		}
 	}
 
 	if opportunistic {
 		// non-nil journalChan means "append opportunistically" and frees up
 		// the journalChan case in "handle".
-		// TODO: is this the right buffer size?
 		ts.journalChan = make(chan []updateDiff, 1)
 	}
 
 	// Everything is ready, now we can start our request handling loop.
 	go ts.handle()
-	return ts
+	return ts, nil
 }
 
 func (t *TaskStore) IsStrict() bool {
 	return t.journalChan != nil
+}
+
+func (t *TaskStore) IsOpen() bool {
+	resp := t.sendRequest(nil, t.isOpenChan)
+	return resp.Val.(bool)
 }
 
 // Close shuts down the taskstore gracefully, finalizing the journal, etc.
@@ -788,8 +800,7 @@ func (t *TaskStore) handle() {
 			req.ResultChan <- response{nil, t.snapshot()}
 		case err := <-t.snapshotDoneChan:
 			if err != nil {
-				// TODO: Should this really be fatal?
-				panic(fmt.Sprintf("snapshot failed: %v", err))
+				log.Printf("snapshot failed: %v", err)
 			}
 			t.snapshotting = false
 		case <-idler:
@@ -797,7 +808,6 @@ func (t *TaskStore) handle() {
 			t.depleteCache(maxCacheDepletion)
 		case transaction := <-t.journalChan:
 			// Opportunistic journaling.
-			// TODO: will journaling fall behind due to starvation in here? Should opportunistic be asynchronous?
 			t.doAppend(transaction)
 		case req := <-t.stringChan:
 			strs := []string{"TaskStore:", "  groups:"}
@@ -826,8 +836,16 @@ func (t *TaskStore) handle() {
 			}
 			req.ResultChan <- response{tasks, nil}
 		case req := <-t.closeChan:
-			err := t.journaler.Close()
+			var err error
+			if t.journaler == nil {
+				err = ErrAlreadyClosed
+			} else {
+				err = t.journaler.Close()
+			}
+			t.journaler = nil
 			req.ResultChan <- response{nil, err}
+		case req := <-t.isOpenChan:
+			req.ResultChan <- response{t.journaler != nil, nil}
 		}
 	}
 }

@@ -20,8 +20,13 @@ package journal
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"io"
+)
+
+var (
+	ErrCantClose = errors.New("cannot close this type of journal")
 )
 
 type Interface interface {
@@ -47,6 +52,10 @@ type Interface interface {
 
 	// Close allows the journal to shut down (e.g., flush data) gracefully.
 	Close() error
+
+	// IsOpen indicates whether the journal is operational and has not been
+	// closed.
+	IsOpen() bool
 }
 
 type Decoder interface {
@@ -105,7 +114,11 @@ func (j *Bytes) JournalDecoder() (Decoder, error) {
 }
 
 func (j *Bytes) Close() error {
-	return nil
+	return ErrCantClose
+}
+
+func (j *Bytes) IsOpen() bool {
+	return true
 }
 
 type Count int64
@@ -148,5 +161,9 @@ func (j Count) JournalDecoder() (Decoder, error) {
 }
 
 func (j Count) Close() error {
-	return nil
+	return ErrCantClose
+}
+
+func (j Count) IsOpen() bool {
+	return true
 }
