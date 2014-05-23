@@ -50,7 +50,11 @@ func ExampleTaskStore() {
 	// the background. If task execution is idempotent and it is always obvious
 	// when to retry, you can get a speed benefit from opportunistic
 	// journaling.
-	store := OpenStrict(jr)
+	store, err := OpenStrict(jr)
+	if err != nil {
+		fmt.Print("error opening taskstore: %v\n", err)
+		return
+	}
 	defer store.Close()
 
 	// To put a task into the store, call Update with the "add" parameter:
@@ -87,7 +91,13 @@ func TestTaskStore_Update(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create journal: %v", err)
 	}
-	store := OpenStrict(jr)
+	store, err := OpenStrict(jr)
+	if err != nil {
+		t.Fatalf("error opening taskstore: %v\n", err)
+	}
+	if !store.IsOpen() {
+		t.Fatalf("task store not open after call to OpenStrict")
+	}
 	defer store.Close()
 
 	var ownerID int32 = 11
@@ -321,7 +331,11 @@ func ExampleTaskStore_mapReduce() {
 	if err != nil {
 		panic(fmt.Sprintf("failed to create journal: %v", err))
 	}
-	store := OpenStrict(jr)
+	store, err := OpenStrict(jr)
+	if err != nil {
+		fmt.Printf("error opening task store: %v\n", err)
+		return
+	}
 	defer store.Close()
 
 	// And add all of the input lines.
@@ -498,6 +512,148 @@ func ExampleTaskStore_mapReduce() {
 	// 0003 key
 }
 
+// Pre/Post conditions for various calls
+type Condition interface {
+	Pre() bool
+	Call()
+	Post() bool
+}
+
+// A ClaimCond embodies the pre and post conditions for calling TaskStore.Claim.
+type ClaimCond struct {
+	store *TaskStore
+
+	argOwner    int32
+	argGroup    string
+	argDuration int64
+	argDepends  []int64
+
+	retTask *Task
+	retErr  error
+
+	preNow            int64
+	preOpen           bool
+	preUnownedInGroup int
+}
+
+func NewClaimCond(store *TaskStore, owner int32, group string, duration int64, depends []int64) *ClaimCond {
+	return &ClaimCond{
+		store:       store,
+		argOwner:    owner,
+		argGroup:    group,
+		argDuration: duration,
+		argDepends:  depends,
+	}
+}
+
+func (c *ClaimCond) Pre() bool {
+	c.preNow = NowMillis()
+	c.preOpen = c.store.IsOpen()
+	c.preUnownedInGroup = len(c.store.ListGroup(c.argGroup, 0, false))
+	return true
+}
+
+func (c *ClaimCond) Call() {
+	c.retTask, c.retErr = c.store.Claim(c.argOwner, c.argGroup, c.argDuration, c.argDepends)
+}
+
+func (c *ClaimCond) Post() bool {
+	if !c.preOpen {
+		if c.store.IsOpen() {
+			fmt.Println("Claim Postcondition: store was not open, but is now")
+			return false
+		}
+		if c.retErr == nil {
+			fmt.Println("Claim Postcondition: no error returned when claiming from a closed store")
+			return false
+		}
+		if numUnowned := len(c.store.ListGroup(c.argGroup, 0, false)); numUnowned != c.preUnownedInGroup {
+			fmt.Println("Claim Postcondition: unowned tasks changed, even though the store is closed")
+			return false
+		}
+		return true
+	}
+
+	now := NowMillis()
+	numUnowned := len(c.store.ListGroup(c.argGroup, 0, false))
+	if c.preUnownedInGroup == 0 && numUnowned > 0 {
+		fmt.Println("Claim Postcondition: no tasks to claim, magically produced a claimable task")
+		return false
+	}
+
+	if c.retTask == nil || c.retErr != nil {
+		fmt.Printf("Claim Postcondition: unowned tasks available, but none claimed: error %v\n", c.retErr)
+		return false
+	}
+
+	if c.retTask.AT > now && numUnowned != (c.preUnownedInGroup-1) {
+		fmt.Println("Claim Postcondition: unowned expected to change by -1, changed by %d",
+			c.preUnownedInGroup-numUnowned)
+		return false
+	}
+
+	if c.retTask.OwnerID != c.argOwner {
+		fmt.Println("Claim Postcondition: owner not assigned properly to claimed task")
+		return false
+	}
+
+	// TODO: check that the claimed task is actually one of the unowned tasks.
+
+	return true
+}
+
+// A CloseCond embodies the pre and post conditions for the Close call.
+type CloseCond struct {
+	store *TaskStore
+	preOpen bool
+	retErr error
+}
+
+func NewCloseClond(store *TaskStore) *CloseCond {
+	return &CloseCond{
+		store: store,
+	}
+}
+
+func (c *CloseCond) Pre() bool {
+	c.preOpen = c.store.IsOpen()
+	return true
+}
+
+func (c *CloseCond) Call() {
+	c.retErr = c.store.Close()
+}
+
+func (c *CloseCond) Post() bool {
+	postOpen := c.store.IsOpen()
+	if !c.preOpen {
+		if postOpen {
+			fmt.Println("Close Postcondition: magically opened from closed state.")
+			return false
+		}
+		if c.retErr == nil {
+			fmt.Println("Close Postcondition: closed store, but Close did not return an error.")
+			return false
+		}
+		return true
+	}
+
+	if c.retErr != nil {
+		fmt.Printf("Close Postcondition: closed an open store, but got an error: %v\n", c.retErr)
+		return false
+	}
+
+	if postOpen {
+		fmt.Println("Close Postcondition: failed to close store; still open.")
+		return false
+	}
+
+	return true
+}
+
+
+
+
 // TODO:
 // It would be nice to have a set of generated tests that actually hit the disk, here.
 // For that we'll need a model of invariants, preconditions, and postconditions.
@@ -510,38 +666,6 @@ func ExampleTaskStore_mapReduce() {
 // 	- Claim
 // 	- Snapshot
 // 	- Close
-//
-// OpenOpportunistic
-// - Pre: valid journaler
-// - Post:
-// 	- non-nil taskstore
-// 	- not closed
-// 	- not strict
-// 	- groups agree with journal
-// 	- tasks agree with journal
-//
-// OpenStrict
-// - Pre: valid journaler
-// - Post:
-// 	- non-nil taskstore
-// 	- not closed
-// 	- strict
-// 	- groups agree with journal
-// 	- tasks agree with journal
-//
-// Claim
-// - Pre: no unowned tasks in given group
-// - Post: no task returned
-//
-// - Pre: unowned tasks in given group
-// - Post:
-//  - task returned
-//  - is now owned by this owner ID
-//  - and has future timespec, according to requested duration
-//
-// Close
-// - Pre: -
-// - Post: Snapshot finalized, store closed
 //
 // Groups
 // - Pre: -
@@ -594,3 +718,21 @@ func ExampleTaskStore_mapReduce() {
 // 	- one error per unowned task ID
 // 	- all non-errored tasks are still in the store
 // 	- no new tasks are in the store (still has same next ID, same number of tasks, etc.)
+//
+// OpenOpportunistic
+// - Pre: valid journaler
+// - Post:
+// 	- non-nil taskstore
+// 	- not closed
+// 	- not strict
+// 	- groups agree with journal
+// 	- tasks agree with journal
+//
+// OpenStrict
+// - Pre: valid journaler
+// - Post:
+// 	- non-nil taskstore
+// 	- not closed
+// 	- strict
+// 	- groups agree with journal
+// 	- tasks agree with journal
