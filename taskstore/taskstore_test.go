@@ -604,9 +604,9 @@ func (c *ClaimCond) Post() bool {
 
 // A CloseCond embodies the pre and post conditions for the Close call.
 type CloseCond struct {
-	store *TaskStore
+	store   *TaskStore
 	preOpen bool
-	retErr error
+	retErr  error
 }
 
 func NewCloseClond(store *TaskStore) *CloseCond {
@@ -651,8 +651,68 @@ func (c *CloseCond) Post() bool {
 	return true
 }
 
+// A ListGroupCond embodies the pre and post conditions for listing tasks in a group.
+type ListGroupCond struct {
+	store *TaskStore
 
+	preOpen bool
+	preNow int64
 
+	argGroup      string
+	argLimit      int
+	argAllowOwned bool
+
+	retTasks []*Task
+}
+
+func NewListGroupCond(store *TaskStore, group string, limit int, allowOwned bool) {
+	return &ListGroupCond{
+		store:         store,
+		argGroup:      group,
+		argLimit:      limit,
+		argAllowOwned: allowOwned,
+	}
+}
+
+func (c *ListGroupCond) Pre() bool {
+	c.preOpen = c.store.IsOpen()
+	c.preNow = NowMillis()
+	return true
+}
+
+func (c *ListGroupCond) Call() {
+	c.retTasks = c.store.ListGroup(c.argGroup, c.argLimit, c.argAllowOwned)
+}
+
+func (c *ListGroupCond) Post() bool {
+	if !c.preOpen {
+		if len(retTasks) > 0 {
+			fmt.Println("ListGroup Postcondition: obtained tasks from a closed store.")
+			return false
+		}
+	}
+
+	if argLimit <= 0 {
+		return true // we can't really test this separately from itself.
+	}
+
+	if !argAllowOwned {
+		for _, t := range c.retTasks {
+			// Not allowing owned, but got owned tasks anyway.
+			if t.AT > c.preNow {
+				fmt.Println("ListGroup Postcondition: got owned tasks when not asking for them.")
+				return false
+			}
+		}
+	}
+
+	if len(c.retTasks) > c.argLimit {
+		fmt.Printf("ListGroup Postcondition: asked for max %d tasks, got more (%d).\n", c.argLimit, len(c.retTasks))
+		return false
+	}
+
+	return true
+}
 
 // TODO:
 // It would be nice to have a set of generated tests that actually hit the disk, here.
@@ -670,13 +730,6 @@ func (c *CloseCond) Post() bool {
 // Groups
 // - Pre: -
 // - Post: all groups that are known to be present are returned, empty groups are not present
-//
-// ListGroup
-// - Pre: -
-// - Post:
-// 	- no more than the lesser of group length and limit tasks returned (<=0 limit means entire group)
-// 	- owned tasks returned only if allowOwned is true
-// 	- all tasks returned actually exist
 //
 // NumTasks:
 // - Pre: -
