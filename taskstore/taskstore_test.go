@@ -523,10 +523,12 @@ type Condition interface {
 type ClaimCond struct {
 	store *TaskStore
 
+	preDepend []*Task
+
 	argOwner    int32
 	argGroup    string
 	argDuration int64
-	argDepends  []int64
+	argDepend   []int64
 
 	retTask *Task
 	retErr  error
@@ -542,19 +544,22 @@ func NewClaimCond(store *TaskStore, owner int32, group string, duration int64, d
 		argOwner:    owner,
 		argGroup:    group,
 		argDuration: duration,
-		argDepends:  depends,
+		argDepend:   depends,
 	}
 }
 
 func (c *ClaimCond) Pre() bool {
 	c.preNow = NowMillis()
 	c.preOpen = c.store.IsOpen()
-	c.preUnownedInGroup = len(c.store.ListGroup(c.argGroup, 0, false))
+	if c.preOpen {
+		c.preUnownedInGroup = len(c.store.ListGroup(c.argGroup, 0, false))
+		c.preDepend = c.store.Tasks(c.argDepend)
+	}
 	return true
 }
 
 func (c *ClaimCond) Call() {
-	c.retTask, c.retErr = c.store.Claim(c.argOwner, c.argGroup, c.argDuration, c.argDepends)
+	c.retTask, c.retErr = c.store.Claim(c.argOwner, c.argGroup, c.argDuration, c.argDepend)
 }
 
 func (c *ClaimCond) Post() bool {
@@ -572,6 +577,19 @@ func (c *ClaimCond) Post() bool {
 			return false
 		}
 		return true
+	}
+
+	// Check that failed dependencies cause a claim error
+	hasNil := -1
+	for i, task := range c.preDepend {
+		if task == nil {
+			hasNil = c.argDepend[i]
+			break
+		}
+	}
+	if hasNil >= 0 && c.retErr == nil {
+		fmt.Printf("Claim Postcondition: dependency %d missing, but claim succeeded.\n", hasNil)
+		return false
 	}
 
 	now := NowMillis()
@@ -637,32 +655,26 @@ func (c *CloseCond) Post() bool {
 		}
 		return true
 	}
-
 	if c.retErr != nil {
 		fmt.Printf("Close Postcondition: closed an open store, but got an error: %v\n", c.retErr)
 		return false
 	}
-
 	if postOpen {
 		fmt.Println("Close Postcondition: failed to close store; still open.")
 		return false
 	}
-
 	return true
 }
 
 // A ListGroupCond embodies the pre and post conditions for listing tasks in a group.
 type ListGroupCond struct {
-	store *TaskStore
-
-	preOpen bool
-	preNow int64
-
+	store         *TaskStore
+	preOpen       bool
+	preNow        int64
 	argGroup      string
 	argLimit      int
 	argAllowOwned bool
-
-	retTasks []*Task
+	retTasks      []*Task
 }
 
 func NewListGroupCond(store *TaskStore, group string, limit int, allowOwned bool) {
@@ -686,16 +698,14 @@ func (c *ListGroupCond) Call() {
 
 func (c *ListGroupCond) Post() bool {
 	if !c.preOpen {
-		if len(retTasks) > 0 {
-			fmt.Println("ListGroup Postcondition: obtained tasks from a closed store.")
+		if retTasks != nil {
+			fmt.Println("ListGroup Postcondition: returned non-nil tasks.")
 			return false
 		}
 	}
-
 	if argLimit <= 0 {
 		return true // we can't really test this separately from itself.
 	}
-
 	if !argAllowOwned {
 		for _, t := range c.retTasks {
 			// Not allowing owned, but got owned tasks anyway.
@@ -705,54 +715,217 @@ func (c *ListGroupCond) Post() bool {
 			}
 		}
 	}
-
 	if len(c.retTasks) > c.argLimit {
 		fmt.Printf("ListGroup Postcondition: asked for max %d tasks, got more (%d).\n", c.argLimit, len(c.retTasks))
 		return false
 	}
-
 	return true
 }
 
+// GroupsCond embodies the pre and post conditions for the store's Groups call.
+type GroupsCond struct {
+	store     *TaskStore
+	preOpen   bool
+	retGroups []string
+}
+
+func NewGroupsCond(store *TaskStore) *GroupsCond {
+	return &GroupsCond{
+		store: store,
+	}
+}
+
+func (c *GroupsCond) Pre() bool {
+	c.preOpen = c.store.IsOpen()
+	return true
+}
+
+func (c *GroupsCond) Call() {
+	c.retGroups = c.store.Groups()
+}
+
+func (c *GroupsCond) Post() bool {
+	if !c.preOpen {
+		if c.retGroups != nil {
+			fmt.Println("Groups Postcondition: returned non-nil groups when closed.")
+			return false
+		}
+		return true
+	}
+	if c.retGroups == nil {
+		fmt.Println("Groups Postcondition: returned nil groups when open.")
+		return false
+	}
+	return true
+}
+
+// NumTasksCond embodies the pre and post conditions for the NumTasks call.
+type NumTasksCond struct {
+	store   *TaskStore
+	preOpen bool
+	retNum  int32
+}
+
+func NewNumTasksCond(store *TaskStore) *NumTasksCond {
+	return &NumTasksCond{
+		store: store,
+	}
+}
+
+func (c *NumTasksCond) Pre() bool {
+	c.preOpen = c.store.IsOpen()
+	return true
+}
+
+func (c *NumTasksCond) Call() {
+	c.retNum = c.store.NumTasks()
+}
+
+func (c *NumTasksCond) Post() {
+	if !c.preOpen {
+		if c.retNum != 0 {
+			fmt.Println("NumTasks Postcondition: non-zero tasks on closed store.")
+			return false
+		}
+		return true
+	}
+	if c.retNum < 0 {
+		fmt.Println("NumTasks Postcondition: negative task num returned.")
+		return false
+	}
+	return true
+}
+
+// Tasks embodies the pre and post conditions for the Tasks call.
+type TasksCond struct {
+	store    *TaskStore
+	preOpen  bool
+	argIDs   []int64
+	retTasks []*Task
+}
+
+func NewTasksCond(store *TaskStore, ids []int64) *TasksCond {
+	return &TasksCond{
+		store:  store,
+		argIDs: ids,
+	}
+}
+
+func (c *TasksCond) Pre() bool {
+	c.preOpen = c.store.IsOpen()
+	return true
+}
+
+func (c *TasksCond) Call() {
+	c.retTasks = c.store.Tasks(c.argIDs)
+}
+
+func (c *TasksCond) Post() bool {
+	if !c.preOpen {
+		if c.retTasks != nil {
+			fmt.Println("Tasks Postcondition: non-nil tasks on closed store.")
+			return false
+		}
+		return true
+	}
+	if len(c.retTasks) > len(c.argIDs) {
+		fmt.Println("Tasks Postcondition: more tasks returned than requested.")
+		return false
+	}
+	idmap := make(map[int32]struct{})
+	for _, id := range c.argIDs {
+		idmap[id] = struct{}{}
+	}
+	for i, t := range c.retTasks {
+		if t != nil {
+			if _, ok := idmap[t.ID]; !ok {
+				fmt.Printf("Tasks Postcondition: returned task %d not in requested ID list %d.\n", t.ID, c.argIDs)
+				return false
+			}
+			if t.ID != c.argIDs[i] {
+				fmt.Printf("Tasks Postcondition: returned task %d not expected task %d.\n", t.ID, c.argIDs[i])
+				return false
+			}
+		}
+		delete(idmap, c.argIDs[i])
+	}
+	if len(idmap) != 0 {
+		fmt.Printf("Tasks Postcondition: not all tasks accounted for. missing %v.\n", idmap)
+		return false
+	}
+	return true
+}
+
+// UpdateCond embodies the pre and post conditions for the Update call.
+type UpdateCond struct {
+	store     *TaskStore
+	preOpen   bool
+	preChange map[int64]*Task
+	preDelete map[int64]*Task
+	preDepend map[int64]*Task
+	argOwner  int32
+	argAdd    []*Task
+	argChange []*Task
+	argDelete []int64
+	argDepend []int64
+	retTasks  []*Task
+	retErr    error
+}
+
+func NewUpdateCond(store *TaskStore, owner int32, add, change []*Task, del, dep []int64) {
+	return &UpdateCond{
+		store:     store,
+		argOwner:  owner,
+		argAdd:    add,
+		argChange: change,
+		argDelete: del,
+		argDepend: dep,
+	}
+}
+
+func (c *UpdateCond) Pre() bool {
+	c.preOpen = c.store.IsOpen()
+	if c.preOpen {
+		for _, group := range c.store.Groups() {
+			c.preChange = c.store.Tasks(c.argChange)
+			c.preDelete = c.store.Tasks(c.argDelete)
+			c.preDepend = c.store.Tasks(c.argDepend)
+		}
+	}
+	return true
+}
+
+func (c *UpdateCond) Call() {
+	c.retTasks, c.retErr = c.store.Update(c.argOwner, c.argAdd, c.argChange, c.argDel, c.argDep)
+}
+
+func (c *UpdateCond) Post() bool {
+	if !c.preOpen {
+		if c.retErr == nil {
+			fmt.Println("Update Postcondition: no error returned when updating a closed store.")
+			return false
+		}
+		return true
+	}
+	// TODO:
+	// We know all of the tasks in the task store that we need to know, i.e.,
+	// changes, deletions, and dependecies (or at least all of the ones that we
+	// can have). Here we need to test that the Update works properly. It
+	// should return an error if
+	//
+	// - Any of the members of the precondition lists are nil (indicating a task wasn't there),
+	// - Any of the members of argChange and argDelete are owned by another ID,
+	//
+	// It should succeed if those conditions are met. If succeeding, it should
+	//
+	// - return all of the added and changed tasks with new IDs,
+	// - actually change those tasks in the task store (their data),
+	// - update the AT and owner ID of the tasks,
+}
+
 // TODO:
-// It would be nice to have a set of generated tests that actually hit the disk, here.
-// For that we'll need a model of invariants, preconditions, and postconditions.
-// Once those are set up, we can just fuzz it by listing all of the API
-// functions and how to generate inputs to them.
 //
-// INVARIANTS:
-// - An open taskstore can always
 // 	- Update
-// 	- Claim
-// 	- Snapshot
-// 	- Close
-//
-// Groups
-// - Pre: -
-// - Post: all groups that are known to be present are returned, empty groups are not present
-//
-// NumTasks:
-// - Pre: -
-// - Post: number of total tasks returned
-//
-// Snapshot
-// - Pre: Snapshot running
-// - Post: Snapshot error - ErrAlreadySnapshotting
-//
-// - Pre: Snapshot not running
-// - Post: Snapshot running, no error
-//
-// Snapshotting
-// - Pre: -
-// - Post: returns whether snapshotting is ongoing.
-//
-// String
-// - Pre: -
-// - Post: string returned
-//
-// Tasks
-// - Pre: -
-// - Post: existing tasks returned, non-existent come back as nil entries. Result is always same length as IDs.
 //
 // Update
 // - Pre: closed
@@ -771,6 +944,17 @@ func (c *ListGroupCond) Post() bool {
 // 	- one error per unowned task ID
 // 	- all non-errored tasks are still in the store
 // 	- no new tasks are in the store (still has same next ID, same number of tasks, etc.)
+//
+// Snapshot
+// - Pre: Snapshot running
+// - Post: Snapshot error - ErrAlreadySnapshotting
+//
+// - Pre: Snapshot not running
+// - Post: Snapshot running, no error
+//
+// Snapshotting
+// - Pre: -
+// - Post: returns whether snapshotting is ongoing.
 //
 // OpenOpportunistic
 // - Pre: valid journaler
