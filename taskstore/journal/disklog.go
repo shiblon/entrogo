@@ -21,13 +21,11 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"os" // only use proc information, nothing that touches the file system.
-	"os/signal"
+	"os"
 	"path/filepath" // only use name manipulation, nothing that touches the file system.
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
