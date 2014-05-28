@@ -610,6 +610,11 @@ func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 // requester, and tasks to be added, changed, and deleted can be specified. If
 // dep is specified, it is a list of task IDs that must be present for the
 // update to succeed.
+// On success, the returned slice of tasks will contain the concatenation of
+// newly added tasks and changed tasks, in order
+// (e.g., [add0, add1, add2, change0, change1, change2]).
+// On failure, an error of type UpdateError will be returned, with all
+// encountered errors listed in the Errors field.
 func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) ([]*Task, error) {
 	up := reqUpdate{
 		OwnerID: owner,
@@ -683,7 +688,7 @@ func (t *TaskStore) Claim(owner int32, group string, duration int64, depends []i
 	return resp.Val.(*Task), resp.Err
 }
 
-// Task attempts to retrieve particular tasks from the store, specified by ID.
+// Tasks attempts to retrieve particular tasks from the store, specified by ID.
 // The returned slice of tasks will be of the same size as the requested IDs,
 // and some of them may be nil (if the requested task does not exist).
 func (t *TaskStore) Tasks(ids []int64) []*Task {
