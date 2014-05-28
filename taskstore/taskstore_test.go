@@ -580,7 +580,7 @@ func (c *ClaimCond) Post() bool {
 	}
 
 	// Check that failed dependencies cause a claim error
-	hasNil := -1
+	var hasNil int64 = -1
 	for i, task := range c.preDepend {
 		if task == nil {
 			hasNil = c.argDepend[i]
@@ -677,7 +677,7 @@ type ListGroupCond struct {
 	retTasks      []*Task
 }
 
-func NewListGroupCond(store *TaskStore, group string, limit int, allowOwned bool) {
+func NewListGroupCond(store *TaskStore, group string, limit int, allowOwned bool) *ListGroupCond {
 	return &ListGroupCond{
 		store:         store,
 		argGroup:      group,
@@ -698,15 +698,15 @@ func (c *ListGroupCond) Call() {
 
 func (c *ListGroupCond) Post() bool {
 	if !c.preOpen {
-		if retTasks != nil {
+		if c.retTasks != nil {
 			fmt.Println("ListGroup Postcondition: returned non-nil tasks.")
 			return false
 		}
 	}
-	if argLimit <= 0 {
+	if c.argLimit <= 0 {
 		return true // we can't really test this separately from itself.
 	}
-	if !argAllowOwned {
+	if !c.argAllowOwned {
 		for _, t := range c.retTasks {
 			// Not allowing owned, but got owned tasks anyway.
 			if t.AT > c.preNow {
@@ -781,7 +781,7 @@ func (c *NumTasksCond) Call() {
 	c.retNum = c.store.NumTasks()
 }
 
-func (c *NumTasksCond) Post() {
+func (c *NumTasksCond) Post() bool {
 	if !c.preOpen {
 		if c.retNum != 0 {
 			fmt.Println("NumTasks Postcondition: non-zero tasks on closed store.")
@@ -832,7 +832,7 @@ func (c *TasksCond) Post() bool {
 		fmt.Println("Tasks Postcondition: more tasks returned than requested.")
 		return false
 	}
-	idmap := make(map[int32]struct{})
+	idmap := make(map[int64]struct{})
 	for _, id := range c.argIDs {
 		idmap[id] = struct{}{}
 	}
@@ -860,9 +860,9 @@ func (c *TasksCond) Post() bool {
 type UpdateCond struct {
 	store     *TaskStore
 	preOpen   bool
-	preChange map[int64]*Task
-	preDelete map[int64]*Task
-	preDepend map[int64]*Task
+	preChange []*Task
+	preDelete []*Task
+	preDepend []*Task
 	argOwner  int32
 	argAdd    []*Task
 	argChange []*Task
@@ -870,9 +870,10 @@ type UpdateCond struct {
 	argDepend []int64
 	retTasks  []*Task
 	retErr    error
+	now       int64
 }
 
-func NewUpdateCond(store *TaskStore, owner int32, add, change []*Task, del, dep []int64) {
+func NewUpdateCond(store *TaskStore, owner int32, add, change []*Task, del, dep []int64) *UpdateCond {
 	return &UpdateCond{
 		store:     store,
 		argOwner:  owner,
@@ -884,19 +885,22 @@ func NewUpdateCond(store *TaskStore, owner int32, add, change []*Task, del, dep 
 }
 
 func (c *UpdateCond) Pre() bool {
+	changeIDs := make([]int64, len(c.argChange))
+	for i, t := range c.argChange {
+		changeIDs[i] = t.ID
+	}
 	c.preOpen = c.store.IsOpen()
 	if c.preOpen {
-		for _, group := range c.store.Groups() {
-			c.preChange = c.store.Tasks(c.argChange)
-			c.preDelete = c.store.Tasks(c.argDelete)
-			c.preDepend = c.store.Tasks(c.argDepend)
-		}
+		c.preChange = c.store.Tasks(changeIDs)
+		c.preDelete = c.store.Tasks(c.argDelete)
+		c.preDepend = c.store.Tasks(c.argDepend)
 	}
 	return true
 }
 
 func (c *UpdateCond) Call() {
-	c.retTasks, c.retErr = c.store.Update(c.argOwner, c.argAdd, c.argChange, c.argDel, c.argDep)
+	c.now = NowMillis()
+	c.retTasks, c.retErr = c.store.Update(c.argOwner, c.argAdd, c.argChange, c.argDelete, c.argDepend)
 }
 
 func (c *UpdateCond) Post() bool {
@@ -907,20 +911,142 @@ func (c *UpdateCond) Post() bool {
 		}
 		return true
 	}
-	// TODO:
-	// We know all of the tasks in the task store that we need to know, i.e.,
-	// changes, deletions, and dependecies (or at least all of the ones that we
-	// can have). Here we need to test that the Update works properly. It
-	// should return an error if
-	//
-	// - Any of the members of the precondition lists are nil (indicating a task wasn't there),
-	// - Any of the members of argChange and argDelete are owned by another ID,
-	//
-	// It should succeed if those conditions are met. If succeeding, it should
-	//
-	// - return all of the added and changed tasks with new IDs,
-	// - actually change those tasks in the task store (their data),
-	// - update the AT and owner ID of the tasks,
+
+	if c.retErr != nil {
+		if c.existMissingDependencies() {
+			// We expect an error if dependencies are missing.
+			return true
+		}
+		if c.existAlreadyOwned() {
+			// We expect an error if changes or deletions are owned elsewhere.
+			return true
+		}
+		fmt.Printf("Update Postcondition: all tasks exist, none are owned by others, but still got an error: %v\n", c.retErr)
+		return false
+	}
+
+	if c.existMissingDependencies() {
+		fmt.Printf("Update Postcondition: no error returned, but missing dependencies: %v\n", c)
+		return false
+	}
+	if c.existAlreadyOwned() {
+		fmt.Printf("Update Postcondition: no error returned, but modifications owned by others: %v\n", c)
+		return false
+	}
+
+	if len(c.retTasks) != len(c.argAdd)+len(c.argChange) {
+		fmt.Printf("Update Postcondition: no error returned, but returned tasks not equal to sum of additions and changes: %v != %v + %v\n",
+			len(c.retTasks), len(c.argAdd), len(c.argChange))
+		return false
+	}
+
+	newAdds := c.retTasks[:len(c.argAdd)]
+	for i, toAdd := range c.argAdd {
+		added := newAdds[i]
+		if added.OwnerID != c.argOwner {
+			fmt.Printf("Update PostCondition: added task does not have the proper owner set: expected %v, got %v\n", c.argOwner, added.OwnerID)
+			return false
+		}
+		if !c.sameEssentialTask(toAdd, added) {
+			fmt.Printf("Update Postcondition: added task differs from requested add: expected\n%v\ngot\n%v\n", toAdd, added)
+			return false
+		}
+		// TODO: In addition to the below, also ensure that the new ID is
+		// bigger than any of the existing tasks we were looking at.
+		if added.ID == 0 {
+			fmt.Printf("Update Postcondition: added task has zero ID: %v\n", added)
+			return false
+		}
+		expectedAT := toAdd.AT
+		if toAdd.AT <= 0 {
+			expectedAT = c.now - toAdd.AT
+		}
+		if expectedAT > added.AT+5000 || expectedAT < added.AT-5000 {
+			fmt.Printf("Update Postcondition: added task has weird AT: expected\n%v\ngot\n%v\n", toAdd, added)
+			return false
+		}
+	}
+	newChanges := c.retTasks[len(c.argAdd):]
+	for i, toChange := range c.argChange {
+		changed := newChanges[i]
+		if changed.OwnerID != c.argOwner {
+			fmt.Printf("Update Postcondition: changed task does not have the proper owner set: expected %v, got %v\n", c.argOwner, changed.OwnerID)
+			return false
+		}
+		if !c.sameEssentialTask(toChange, changed) {
+			fmt.Printf("Update Postcondition: changed task differs from requested change: expected\n%v\ngot\n%v\n", toChange, changed)
+			return false
+		}
+		if changed.ID <= toChange.ID {
+			fmt.Printf("Update Postcondition: changed task should have strictly greater ID:\nrequest\n%v\nresponse\n%v\n", toChange, changed)
+			return false
+		}
+		// Check that the old tasks are all gone.
+		oldIDs := make([]int64, len(c.argChange))
+		for i, t := range c.argChange {
+			oldIDs[i] = t.ID
+		}
+		oldTasks := c.store.Tasks(oldIDs)
+		for _, t := range oldTasks {
+			if t != nil {
+				fmt.Printf("Update Postcondition: changed a task, but the old task is still present in the task store: %v\n", t)
+				return false
+			}
+		}
+	}
+
+	deleted := c.store.Tasks(c.argDelete)
+	for i, t := range deleted {
+		if t != nil {
+			fmt.Printf("Update Postcondition: expected deleted tasks to disapper, but found %d still there.\n",
+				c.argDelete[i])
+			return false
+		}
+	}
+	return true
+}
+
+// sameEssentialTask compares group and data to see if they are the same. It ignores AT, ID, and OwnerID.
+func (c *UpdateCond) sameEssentialTask(t1, t2 *Task) bool {
+	for i, d1 := range t1.Data {
+		if d1 != t2.Data[i] {
+			return false
+		}
+	}
+	return t1.Group == t2.Group
+}
+
+func (c *UpdateCond) existAlreadyOwned() bool {
+	for _, t := range c.preChange {
+		if t.OwnerID != c.argOwner {
+			return true
+		}
+	}
+	for _, t := range c.preDelete {
+		if t.OwnerID != c.argOwner {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *UpdateCond) existMissingDependencies() bool {
+	for _, t := range c.preChange {
+		if t == nil {
+			return true
+		}
+	}
+	for _, t := range c.preDelete {
+		if t == nil {
+			return true
+		}
+	}
+	for _, t := range c.preDepend {
+		if t == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // TODO:
