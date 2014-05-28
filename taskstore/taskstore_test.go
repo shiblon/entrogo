@@ -1003,6 +1003,20 @@ func (c *UpdateCond) Post() bool {
 			return false
 		}
 	}
+
+	groups := c.store.Groups()
+	groupMap := make(map[string]struct{})
+	for _, g := range groups {
+		groupMap[g] = struct{}{}
+	}
+	for i, t := range c.argAdd {
+		if _, ok := groupMap[t.Group]; !ok {
+			fmt.Printf("Update Postcondition: added group %s to store, but that group is not present\n", t.Group)
+			return false
+		}
+	}
+
+	// TODO: check that now-empty groups are gone.
 	return true
 }
 
@@ -1049,27 +1063,103 @@ func (c *UpdateCond) existMissingDependencies() bool {
 	return false
 }
 
-// TODO:
-//
-// 	- Update
-//
-// Update
-// - Pre: closed
-// - Post: panic
-//
-// - Pre: All requested IDs exist in the store.
-// - Post:
-//  - return exactly one task item per requested task change (updates and adds)
-//  - All new tasks are in the task store, none of the old ones (except dependencies).
-//  - Now-empty groups no longer exist
-//  - Newly-added groups exist
-//  - New tasks have appropriate times assigned (if initially <=0, they should now be positive)
-//
-// - Pre: Some requested IDs do not exist in the store, or updates/deletes are not owned.
-// - Post:
-// 	- one error per unowned task ID
-// 	- all non-errored tasks are still in the store
-// 	- no new tasks are in the store (still has same next ID, same number of tasks, etc.)
+// OpenOpportunisticCond embodies the pre and post conditions for the OpenOpportunistic call.
+type OpenOpportunisticCond struct {
+	argJournal journal.Interface
+	retStore   *TaskStore
+	retErr     error
+}
+
+func NewOpenOpportunisticCond(journal journal.Interface) *OpenOpportunisticCond {
+	return &OpenOpportunisticCond{
+		argJournal: journal,
+	}
+}
+
+func (c *OpenOpportunisticCond) Pre() bool {
+	if reflect.ValueOf(c.argJournal).IsNil() {
+		fmt.Printf("OpenOpportunistic Precondition: nil journal: %v\n", c.argJournal)
+		return false
+	}
+	return true
+}
+
+func (c *OpenOpportunisticCond) Call() {
+	c.retStore, c.retErr = OpenOpportunistic(c.argJournal)
+}
+
+func (c *OpenOpportunisticCond) Post() bool {
+	if c.retErr != nil {
+		if c.retStore != nil {
+			fmt.Printf("OpenOpportunistic Precondition: error returned, but store exists: %v\n", c.retErr)
+			return false
+		}
+		return true
+	}
+
+	if !c.retStore.IsOpen() {
+		fmt.Printf("OpenOpportunistic Precondition: successful open, but store is not open: %v\n", c.retStore)
+		return false
+	}
+	if c.retStore.IsStrict() {
+		fmt.Printf("OpenOpportunistic Precondition: successful opportunistic open, but in strict mode: %v\n", c.retStore)
+		return false
+	}
+	// TODO: it would be nice to check that the journal and the contents of the
+	// store actually match. But this is a lot more work, so we'll skip it for
+	// now.
+	return true
+}
+
+// OpenStrictCond embodies the pre and post conditions for the OpenStrict call.
+type OpenStrictCond struct {
+	argJournal journal.Interface
+	retStore   *TaskStore
+	retErr     error
+}
+
+func NewOpenStrictCond(journal journal.Interface) *OpenStrictCond {
+	return &OpenStrictCond{
+		argJournal: journal,
+	}
+}
+
+func (c *OpenStrictCond) Pre() bool {
+	if reflect.ValueOf(c.argJournal).IsNil() {
+		fmt.Printf("OpenStrict Precondition: nil journal: %v\n", c.argJournal)
+		return false
+	}
+	return true
+}
+
+func (c *OpenStrictCond) Call() {
+	c.retStore, c.retErr = OpenStrict(c.argJournal)
+}
+
+func (c *OpenStrictCond) Post() bool {
+	if c.retErr != nil {
+		if c.retStore != nil {
+			fmt.Printf("OpenStrict Precondition: error returned, but store exists: %v\n", c.retErr)
+			return false
+		}
+		return true
+	}
+
+	if !c.retStore.IsOpen() {
+		fmt.Printf("OpenStrict Precondition: successful open, but store is not open: %v\n", c.retStore)
+		return false
+	}
+	if !c.retStore.IsStrict() {
+		fmt.Printf("OpenStrict Precondition: successful strict open, but not in strict mode: %v\n", c.retStore)
+		return false
+	}
+	// TODO: it would be nice to check that the journal and the contents of the
+	// store actually match. But this is a lot more work, so we'll skip it for
+	// now.
+	return true
+}
+
+// TODO: Add more pre-post conditions
 //
 // Snapshot
 // - Pre: Snapshot running
@@ -1081,21 +1171,3 @@ func (c *UpdateCond) existMissingDependencies() bool {
 // Snapshotting
 // - Pre: -
 // - Post: returns whether snapshotting is ongoing.
-//
-// OpenOpportunistic
-// - Pre: valid journaler
-// - Post:
-// 	- non-nil taskstore
-// 	- not closed
-// 	- not strict
-// 	- groups agree with journal
-// 	- tasks agree with journal
-//
-// OpenStrict
-// - Pre: valid journaler
-// - Post:
-// 	- non-nil taskstore
-// 	- not closed
-// 	- strict
-// 	- groups agree with journal
-// 	- tasks agree with journal
