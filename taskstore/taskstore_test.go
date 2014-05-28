@@ -32,12 +32,8 @@ func ExampleTaskStore() {
 	// to implement a service, you can easily do so using the primitives
 	// provided. This example should give an idea of how you might do that.
 
-	// To create a task store, specify a journal implementation. This
-	// particular implementation will attempt to lock a file in the specified
-	// directory and will panic if it cannot. It is not a guarantee against
-	// simultaneous unsafe access in a networked environment, however. For that
-	// a consensus protocol or something similar is recommended, implemented at
-	// the service level.
+	// To create a task store, specify a journal implementation. A real
+	// implementation should use a lock of some kind to guarantee exclusivity.
 	jr, err := journal.OpenDiskLog("/tmp/taskjournal")
 	if err != nil {
 		panic(fmt.Sprintf("could not create journal: %v", err))
@@ -510,6 +506,28 @@ func ExampleTaskStore_mapReduce() {
 	// 0003 word
 	// 0003 mappers
 	// 0003 key
+}
+
+func TestTaskStore_Fuzz(t *testing.T) {
+	// TODO:
+	//
+	// Make a list of things to do (managed as conditions). Try to cover all of the operations.
+	// The main difficulties are
+	// - Open
+	// - Close
+	// - Claim
+	// 	 - Make sure to test claiming existing tasks and non-existing tasks.
+	// - Update
+	// 	 - Make sure to add,
+	// 	 - delete (existing and non-existing),
+	// 	 - update (existing and non-existing),
+	// 	 - depend (existing and non-existing),
+	// 	 The trick here is going to be making sure that we have some operations
+	// 	 that actually succeed. So we'll need to randomly create successful
+	// 	 operations and then randomly mutate them to fail once in a while for
+	// 	 various reasons.
+	// The rest are read-only operations. We want to fuzz mutations (but we
+	// also want to be sure that the read-only stuff actually works).
 }
 
 // Pre/Post conditions for various calls
@@ -1065,6 +1083,7 @@ func (c *UpdateCond) existMissingDependencies() bool {
 
 // OpenOpportunisticCond embodies the pre and post conditions for the OpenOpportunistic call.
 type OpenOpportunisticCond struct {
+	preBusy    bool
 	argJournal journal.Interface
 	retStore   *TaskStore
 	retErr     error
@@ -1158,16 +1177,3 @@ func (c *OpenStrictCond) Post() bool {
 	// now.
 	return true
 }
-
-// TODO: Add more pre-post conditions
-//
-// Snapshot
-// - Pre: Snapshot running
-// - Post: Snapshot error - ErrAlreadySnapshotting
-//
-// - Pre: Snapshot not running
-// - Post: Snapshot running, no error
-//
-// Snapshotting
-// - Pre: -
-// - Post: returns whether snapshotting is ongoing.
