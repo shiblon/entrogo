@@ -33,10 +33,8 @@ type FS interface {
 	Rename(oldname, newname string) error
 	Remove(name string) error
 	RemoveAll(dirname string) error
-	Lock(name string) error
 	Mkdir(name string, perm os.FileMode) error
 	MkdirAll(name string, perm os.FileMode) error
-	Unlock(name string) error
 	Stat(name string) (os.FileInfo, error)
 	FindMatching(glob string) ([]string, error)
 }
@@ -73,46 +71,12 @@ func (OSFS) RemoveAll(dirname string) error {
 	return os.RemoveAll(dirname)
 }
 
-func (OSFS) Lock(name string) error {
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_EXCL|os.O_CREATE, 0660)
-	if err != nil {
-		return err
-	}
-	defer func() { f.Close() }()
-	// non-blocking exclusive lock
-	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-	if err != nil {
-		os.Remove(name)
-		return err
-	}
-	f.WriteString(fmt.Sprintf("%d\n", os.Getpid()))
-	return nil
-}
-
 func (OSFS) Mkdir(name string, perm os.FileMode) error {
 	return os.Mkdir(name, perm)
 }
 
 func (OSFS) MkdirAll(name string, perm os.FileMode) error {
 	return os.MkdirAll(name, perm)
-}
-
-func (OSFS) Unlock(name string) error {
-	f, err := os.Open(name)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		f.Close()
-		os.Remove(name)
-	}()
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
-		return err
-	}
-	if err := os.Remove(name); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (OSFS) Stat(name string) (os.FileInfo, error) {
@@ -248,16 +212,6 @@ func (m *MemFS) RemoveAll(dirname string) error {
 	return nil
 }
 
-func (m *MemFS) Lock(name string) error {
-	defer un(lock(&m.lockmx))
-
-	if _, ok := m.files[name]; ok {
-		return os.ErrExist
-	}
-	m.Create(name)
-	return nil
-}
-
 func (m *MemFS) Mkdir(name string, perm os.FileMode) error {
 	now := time.Now()
 	m.files[name] = &memFile{name: name, modtime: now, isdir: true}
@@ -267,16 +221,6 @@ func (m *MemFS) Mkdir(name string, perm os.FileMode) error {
 func (m *MemFS) MkdirAll(name string, perm os.FileMode) error {
 	now := time.Now()
 	m.files[name] = &memFile{name: name, modtime: now, isdir: true}
-	return nil
-}
-
-func (m *MemFS) Unlock(name string) error {
-	defer un(lock(&m.lockmx))
-
-	if _, ok := m.files[name]; !ok {
-		return os.ErrNotExist
-	}
-	m.Remove(name)
 	return nil
 }
 

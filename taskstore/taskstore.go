@@ -37,6 +37,10 @@ var (
 	ErrAlreadyClosed       = errors.New("already closed")
 )
 
+// TODO: move snapshot functionality completely out, make it operate only on files.
+// This might require making a way to open a read-only taskstore, then a way to
+// dump it to a file.
+
 const (
 	// The maximum number of items to deplete from the cache when snapshotting
 	// is finished but the cache has items in it (during an update).
@@ -249,16 +253,48 @@ func (t *TaskStore) getTask(id int64) *Task {
 }
 
 // UpdateError contains a map of errors, the key is the index of a task that
-// was not present in an expected way.
+// was not present in an expected way. All fields are nil when empty.
 type UpdateError struct {
-	Errors []error
+	// Changes contains the list of tasks that were not present and could thus not be changed.
+	Changes []int64
+
+	// Deletes contains the list of IDs that could not be deleted.
+	Deletes []int64
+
+	// Depends contains the list of IDs that were not present and caused the update to fail.
+	Depends []int64
+
+	// Owned contains the list of IDs that were owned by another client and could not be changed.
+	Owned []int64
+
+	// Bugs contains a list of errors representing caller precondition failures (bad inputs).
+	Bugs []error
+}
+
+func (ue UpdateError) HasDependencyErrors() bool {
+	return ue.Changes != nil || ue.Deletes != nil || ue.Depends != nil || ue.Owned != nil
+}
+
+func (ue UpdateError) HasBugs() bool {
+	return ue.Bugs != nil
+}
+
+func (ue UpdateError) hasAnyErrors() bool {
+	return ue.HasDependencyErrors() || ue.Bugs != nil
 }
 
 // Error returns an error string (and satisfies the Error interface).
 func (ue UpdateError) Error() string {
-	strs := []string{"update error:"}
-	for _, e := range ue.Errors {
-		strs = append(strs, fmt.Sprintf("  %v", e.Error()))
+	strs := []string{
+		"update error:",
+		fmt.Sprintf("  Change IDs: %d", ue.Changes),
+		fmt.Sprintf("  Delete IDs: %d", ue.Deletes),
+		fmt.Sprintf("  Depend IDs: %d", ue.Depends),
+		fmt.Sprintf("  Owned IDs: %d", ue.Owned),
+		"  Bugs:",
+	}
+	for _, e := range ue.Bugs {
+		strs = append(strs, fmt.Sprintf("    %v", e))
 	}
 	return strings.Join(strs, "\n")
 }
@@ -430,11 +466,11 @@ func (t *TaskStore) heapPush(task *Task) {
 	h.Push(task)
 }
 
-func testCanModify(now int64, clientID int32, task *Task) error {
+func canModify(now int64, clientID int32, task *Task) bool {
 	if task.AT > now && clientID != task.OwnerID {
-		return fmt.Errorf("task %d owned by %d, cannot be changed by %d", task.ID, task.OwnerID, clientID)
+		return false
 	}
-	return nil
+	return true
 }
 
 // update performs (or attempts to perform) a batch task update.
@@ -452,7 +488,7 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	// Check that the dependencies are all around.
 	for _, id := range up.Depends {
 		if task := t.getTask(id); task == nil {
-			uerr.Errors = append(uerr.Errors, fmt.Errorf("unmet dependency: task ID %d not present", id))
+			uerr.Depends = append(uerr.Depends, id)
 		}
 	}
 
@@ -463,11 +499,11 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	for i, id := range up.Deletes {
 		task := t.getTask(id)
 		if task == nil {
-			uerr.Errors = append(uerr.Errors, fmt.Errorf("missing deletion: task ID %d not present", id))
+			uerr.Deletes = append(uerr.Deletes, id)
 			continue
 		}
-		if err := testCanModify(now, up.OwnerID, task); err != nil {
-			uerr.Errors = append(uerr.Errors, err)
+		if !canModify(now, up.OwnerID, task) {
+			uerr.Owned = append(uerr.Owned, task.ID)
 			continue
 		}
 		// Make a deletion transaction.
@@ -478,9 +514,10 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 		i := chgi + len(up.Deletes)
 
 		// Additions always OK.
-		if task.ID <= 0 && len(uerr.Errors) == 0 {
+		if task.ID <= 0 && !uerr.hasAnyErrors() {
 			if task.Group == "" {
-				uerr.Errors = append(uerr.Errors, fmt.Errorf("adding task with empty task group not allowed"))
+				uerr.Bugs = append(uerr.Bugs,
+					fmt.Errorf("update bug: adding task with empty task group not allowed: %v", task))
 				continue
 			}
 			transaction[i] = updateDiff{0, task.Copy()}
@@ -489,11 +526,11 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 		// Everything else has to exist first.
 		ot := t.getTask(task.ID)
 		if ot == nil {
-			uerr.Errors = append(uerr.Errors, fmt.Errorf("task %d not found", task.ID))
+			uerr.Changes = append(uerr.Changes, task.ID)
 			continue
 		}
-		if err := testCanModify(now, up.OwnerID, ot); err != nil {
-			uerr.Errors = append(uerr.Errors, err)
+		if !canModify(now, up.OwnerID, ot) {
+			uerr.Owned = append(uerr.Owned, ot.ID)
 			continue
 		}
 		// Specifying a different (or any) group is meaningless in an update,
@@ -503,7 +540,7 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 		transaction[i] = updateDiff{task.ID, task.Copy()}
 	}
 
-	if len(uerr.Errors) > 0 {
+	if uerr.hasAnyErrors() {
 		return nil, uerr
 	}
 
@@ -613,8 +650,8 @@ func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 // On success, the returned slice of tasks will contain the concatenation of
 // newly added tasks and changed tasks, in order
 // (e.g., [add0, add1, add2, change0, change1, change2]).
-// On failure, an error of type UpdateError will be returned, with all
-// encountered errors listed in the Errors field.
+// On failure, an error of type UpdateError will be returned with details about
+// the types of errors and the IDs that caused them.
 func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) ([]*Task, error) {
 	up := reqUpdate{
 		OwnerID: owner,
