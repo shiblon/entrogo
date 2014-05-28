@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -206,11 +207,11 @@ func TestTaskStore_Update(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected error type, could not convert to UpdateError: %#v", err)
 	}
-	if len(uerr.Errors) != 1 {
-		t.Errorf("expected 1 error in UpdateError list, got %d", len(uerr.Errors))
+	if len(uerr.Owned) != 1 {
+		t.Errorf("expected 1 error in UpdateError list, got %v", uerr)
 	}
-	if !strings.Contains(uerr.Errors[0].Error(), fmt.Sprintf("owned by %d, cannot be changed by %d", ownerID, ownerID+1)) {
-		t.Errorf("expected ownership error, got %v", uerr.Errors)
+	if uerr.Owned[0] != t0.ID {
+		t.Errorf("expected ownership error on task ID %d, got %v", t0.ID, uerr)
 	}
 
 	// Now try to update something that depends on an old task (our original
@@ -219,8 +220,8 @@ func TestTaskStore_Update(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected updated dependent on %d to fail, as that task should not be around", tasks[0].ID)
 	}
-	if !strings.Contains(err.(UpdateError).Errors[0].Error(), "unmet dependency:") {
-		t.Fatalf("expected unmet dependency error, got %v", err.(UpdateError).Errors)
+	if err.(UpdateError).Depends[0] != tasks[0].ID {
+		t.Fatalf("expected unmet dependency error for ID %d, got %v", tasks[0].ID, err)
 	}
 
 	// Try updating a task that we already updated.
@@ -228,8 +229,8 @@ func TestTaskStore_Update(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected to get an error when updating a task that was already updated")
 	}
-	if !strings.Contains(err.(UpdateError).Errors[0].Error(), "not found") {
-		t.Fatalf("expected task not found error, got %v", err.(UpdateError).Errors)
+	if err.(UpdateError).Changes[0] != updated[0].ID {
+		t.Fatalf("expected task not found error for ID %d, got %v", updated[0].ID, err)
 	}
 
 	// And now try deleting a task.
@@ -1027,7 +1028,7 @@ func (c *UpdateCond) Post() bool {
 	for _, g := range groups {
 		groupMap[g] = struct{}{}
 	}
-	for i, t := range c.argAdd {
+	for _, t := range c.argAdd {
 		if _, ok := groupMap[t.Group]; !ok {
 			fmt.Printf("Update Postcondition: added group %s to store, but that group is not present\n", t.Group)
 			return false
