@@ -531,6 +531,7 @@ func TestTaskStore_Fuzz(t *testing.T) {
 	}
 
 	config := &quick.Config{
+		MaxCount: 50000,
 		Values: func(values []reflect.Value, rand *rand.Rand) {
 			// Just set up one journal. All bets are off if exclusivity is broken.
 			fs := journal.NewMemFS("/tmp")
@@ -659,14 +660,23 @@ func TestTaskStore_Fuzz(t *testing.T) {
 			case NumTasks:
 				cond = NewNumTasksCond()
 			case Tasks:
-				// TODO
+				var ids []int64
+				for i := w.Draw; i < w.Draw + (w.Draw % 7); i++ {
+					if t := randTask(i); t != nil {
+						ids = append(ids, t.ID)
+					}
+				}
+				if w.Draw % 100 > 90 {
+					// Add an unknown ID to exercise failure.
+					ids = append(ids, int64(w.Draw % 1000))
+				}
+				cond = NewTasksCond(ids)
 			case Update:
 				r := w.Draw % 100
 				var adds []*Task
 				var changes []*Task
 				var deletes []int64
 				var depends []int64
-				fmt.Println(taskPool)
 				if r < 40 && len(taskPool) > 0 {
 					n := w.Draw % 10
 					if n > len(taskPool) {
@@ -675,7 +685,6 @@ func TestTaskStore_Fuzz(t *testing.T) {
 					adds = taskPool[len(taskPool)-n:]
 					taskPool = taskPool[:len(taskPool)-n]
 				}
-				fmt.Println(taskPool)
 				if r < 30 {
 					if r < 25 {
 						if t := randTask(w.Draw); t != nil {
@@ -711,7 +720,6 @@ func TestTaskStore_Fuzz(t *testing.T) {
 						}
 					}
 				}
-				fmt.Println(adds, changes, deletes, depends)
 				cond = NewUpdateCond(randOwner(w.Draw), adds, changes, deletes, depends)
 			default:
 				panic(fmt.Sprintf("unknown condition indicator %v - should never happen", w))
