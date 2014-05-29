@@ -523,13 +523,6 @@ func TestTaskStore_Fuzz(t *testing.T) {
 		APIEnd
 	)
 
-	// Just set up one journal. All bets are off if exclusivity is broken.
-	fs := journal.NewMemFS("/tmp")
-	jr, err := journal.OpenDiskLogInjectFS("/tmp", fs)
-	if err != nil {
-		t.Fatalf("failed to open journal: %v", err)
-	}
-
 	type Which struct {
 		APIIndex int
 		// Draw is a random value that can be used for variations on call
@@ -539,29 +532,44 @@ func TestTaskStore_Fuzz(t *testing.T) {
 
 	config := &quick.Config{
 		Values: func(values []reflect.Value, rand *rand.Rand) {
+			// Just set up one journal. All bets are off if exclusivity is broken.
+			fs := journal.NewMemFS("/tmp")
+			values[0] = reflect.ValueOf(fs)
+
+			jr, err := journal.OpenDiskLogInjectFS("/tmp", fs)
+			if err != nil {
+				t.Fatalf("failed to open journal: %v", err)
+			}
+			values[1] = reflect.ValueOf(jr)
+
 			// Begin by opening the task store either in opportunistic or strict mode.
-			values[0] = reflect.ValueOf(NewOpenCond(jr, rand.Intn(2) == 0))
+			values[2] = reflect.ValueOf(NewOpenCond(jr, rand.Intn(2) == 0))
 			var apis []Which
 			for i := 0; i < rand.Intn(20); i++ {
 				apis = append(apis, Which{rand.Intn(APIEnd), rand.Int()})
 			}
-			values[1] = reflect.ValueOf(apis)
+			values[3] = reflect.ValueOf(apis)
 		},
 	}
 
-	f := func(o *OpenCond, which []Which) bool {
-		if !o.Pre(nil) {
-			fmt.Printf("open pre failed: %v\n", o)
+	f := func(fs journal.FS, jr journal.Interface, o *OpenCond, which []Which) bool {
+		if err := o.Pre(nil); err != nil {
+			fmt.Println("Error:", err)
 			return false
 		}
 		o.Call()
-		if !o.Post() {
-			fmt.Printf("open post failed: %v\n", o)
+		if err := o.Post(); err != nil {
+			fmt.Println("Error:", err)
 			return false
 		}
 
 		// Store is now open.
 		store := o.RetStore
+
+		if store == nil {
+			fmt.Println("store not open!")
+			return false
+		}
 
 		owners := []int32{100, 200, 300}
 		groups := []string{"g1", "g2", "g3", "g4", "g5", "g6"}
@@ -629,16 +637,16 @@ func TestTaskStore_Fuzz(t *testing.T) {
 				panic(fmt.Sprintf("unknown condition indicator %v - should never happen", w))
 			}
 			if cond == nil {
-				fmt.Printf("blank condition for type %v\n", w)
+				fmt.Printf("FIXME: blank condition for type %v\n", w)
 				continue
 			}
-			if !cond.Pre(store) {
-				fmt.Printf("Pre failed for %v\n", cond)
-				return false
+			if err := cond.Pre(store); err != nil {
+				fmt.Println("Skipping:", err)
+				continue
 			}
 			cond.Call()
-			if !cond.Post() {
-				fmt.Printf("Post failed for %v:\n%v\n", w, cond)
+			if err := cond.Post(); err != nil {
+				fmt.Println("Error:", err)
 				return false
 			}
 		}

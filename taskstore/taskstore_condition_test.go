@@ -25,17 +25,17 @@ import (
 // These are used to represent what should happen when a call is made to an
 // API function, depending on the state of the world before it happens.
 type Condition interface {
-	// Pre is called before calling the Call function. If it returns false,
+	// Pre is called before calling the Call function. If it returns an error,
 	// the Call function is not called because the precondition is not met.
 	// You can pass in information to aid in providing state if needed.
-	Pre(info interface{}) bool
+	Pre(info interface{}) error
 
 	// Call calls the API corresponding to this condition (e.g., Claim)
 	Call()
 
 	// Post is called after Call, and indicates whether the Call left things
 	// in an appropriate state.
-	Post() bool
+	Post() error
 }
 
 // A ClaimCond embodies the pre and post conditions for calling TaskStore.Claim.
@@ -66,7 +66,7 @@ func NewClaimCond(owner int32, group string, duration int64, depends []int64) *C
 	}
 }
 
-func (c *ClaimCond) Pre(info interface{}) bool {
+func (c *ClaimCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
 	c.PreNow = NowMillis()
 	c.PreOpen = c.Store.IsOpen()
@@ -74,28 +74,25 @@ func (c *ClaimCond) Pre(info interface{}) bool {
 		c.PreUnownedInGroup = len(c.Store.ListGroup(c.ArgGroup, 0, false))
 		c.PreDepend = c.Store.Tasks(c.ArgDepend)
 	}
-	return true
+	return nil
 }
 
 func (c *ClaimCond) Call() {
 	c.RetTask, c.RetErr = c.Store.Claim(c.ArgOwner, c.ArgGroup, c.ArgDuration, c.ArgDepend)
 }
 
-func (c *ClaimCond) Post() bool {
+func (c *ClaimCond) Post() error {
 	if !c.PreOpen {
 		if c.Store.IsOpen() {
-			fmt.Println("Claim Postcondition: store was not open, but is now")
-			return false
+			return fmt.Errorf("Claim Postcondition: store was not open, but it is now")
 		}
 		if c.RetErr == nil {
-			fmt.Println("Claim Postcondition: no error returned when claiming from a closed store")
-			return false
+			return fmt.Errorf("Claim Postcondition: no error returned when claiming from a closed store")
 		}
 		if numUnowned := len(c.Store.ListGroup(c.ArgGroup, 0, false)); numUnowned != c.PreUnownedInGroup {
-			fmt.Println("Claim Postcondition: unowned tasks changed, even though the store is closed")
-			return false
+			return fmt.Errorf("Claim Postcondition: unowned tasks changed, even though the store is closed")
 		}
-		return true
+		return nil
 	}
 
 	// Check that failed dependencies cause a claim error
@@ -107,43 +104,36 @@ func (c *ClaimCond) Post() bool {
 		}
 	}
 	if hasNil >= 0 && c.RetErr == nil {
-		fmt.Printf("Claim Postcondition: dependency %d missing, but claim succeeded.\n", hasNil)
-		return false
+		return fmt.Errorf("Claim Postcondition: dependency %d missing, but claim succeeded.\n", hasNil)
 	}
 
 	now := NowMillis()
 	numUnowned := len(c.Store.ListGroup(c.ArgGroup, 0, false))
 	if c.PreUnownedInGroup == 0 {
 		if numUnowned > 0 {
-			fmt.Println("Claim Postcondition: no tasks to claim, magically produced a claimable task")
-			return false
+			return fmt.Errorf("Claim Postcondition: no tasks to claim, magically produced a claimable task")
 		}
 		if c.RetErr != nil {
-			fmt.Printf("Claim Postcondition: should not be an error to claim no tasks when non exist, but got %v.\n", c.RetErr)
-			return false
+			return fmt.Errorf("Claim Postcondition: should not be an error to claim no tasks when non exist, but got %v.\n", c.RetErr)
 		}
-		return true
+		return nil
 	}
 
 	if c.RetTask == nil || c.RetErr != nil {
-		fmt.Printf("Claim Postcondition: unowned tasks available, but none claimed: error %v\n", c.RetErr)
-		return false
+		return fmt.Errorf("Claim Postcondition: unowned tasks available, but none claimed: error %v\n", c.RetErr)
 	}
 
 	if c.RetTask.AT > now && numUnowned != (c.PreUnownedInGroup-1) {
-		fmt.Println("Claim Postcondition: unowned expected to change by -1, changed by %d",
-			c.PreUnownedInGroup-numUnowned)
-		return false
+		return fmt.Errorf("Claim Postcondition: unowned expected to change by -1, changed by %d", c.PreUnownedInGroup-numUnowned)
 	}
 
 	if c.RetTask.OwnerID != c.ArgOwner {
-		fmt.Println("Claim Postcondition: owner not assigned properly to claimed task")
-		return false
+		return fmt.Errorf("Claim Postcondition: owner not assigned properly to claimed task")
 	}
 
 	// TODO: check that the claimed task is actually one of the unowned tasks.
 
-	return true
+	return nil
 }
 
 // A CloseCond embodies the pre and post conditions for the Close call.
@@ -158,38 +148,34 @@ func NewCloseCond() *CloseCond {
 	}
 }
 
-func (c *CloseCond) Pre(info interface{}) bool {
+func (c *CloseCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
 	c.PreOpen = c.Store.IsOpen()
-	return true
+	return nil
 }
 
 func (c *CloseCond) Call() {
 	c.RetErr = c.Store.Close()
 }
 
-func (c *CloseCond) Post() bool {
+func (c *CloseCond) Post() error {
 	postOpen := c.Store.IsOpen()
 	if !c.PreOpen {
 		if postOpen {
-			fmt.Println("Close Postcondition: magically opened from closed state.")
-			return false
+			return fmt.Errorf("Close Postcondition: magically opened from closed state.")
 		}
 		if c.RetErr == nil {
-			fmt.Println("Close Postcondition: closed store, but Close did not return an error.")
-			return false
+			return fmt.Errorf("Close Postcondition: closed store, but Close did not return an error.")
 		}
-		return true
+		return nil
 	}
 	if c.RetErr != nil {
-		fmt.Printf("Close Postcondition: closed an open store, but got an error: %v\n", c.RetErr)
-		return false
+		return fmt.Errorf("Close Postcondition: closed an open store, but got an error: %v\n", c.RetErr)
 	}
 	if postOpen {
-		fmt.Println("Close Postcondition: failed to close store; still open.")
-		return false
+		return fmt.Errorf("Close Postcondition: failed to close store; still open.")
 	}
-	return true
+	return nil
 }
 
 // A ListGroupCond embodies the pre and post conditions for listing tasks in a group.
@@ -211,41 +197,38 @@ func NewListGroupCond(group string, limit int, allowOwned bool) *ListGroupCond {
 	}
 }
 
-func (c *ListGroupCond) Pre(info interface{}) bool {
+func (c *ListGroupCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
 	c.PreOpen = c.Store.IsOpen()
 	c.PreNow = NowMillis()
-	return true
+	return nil
 }
 
 func (c *ListGroupCond) Call() {
 	c.RetTasks = c.Store.ListGroup(c.ArgGroup, c.ArgLimit, c.ArgAllowOwned)
 }
 
-func (c *ListGroupCond) Post() bool {
+func (c *ListGroupCond) Post() error {
 	if !c.PreOpen {
 		if c.RetTasks != nil {
-			fmt.Println("ListGroup Postcondition: returned non-nil tasks.")
-			return false
+			return fmt.Errorf("ListGroup Postcondition: returned non-nil tasks.")
 		}
 	}
 	if c.ArgLimit <= 0 {
-		return true // we can't really test this separately from itself.
+		return nil // we can't really test this separately from itself.
 	}
 	if !c.ArgAllowOwned {
 		for _, t := range c.RetTasks {
 			// Not allowing owned, but got owned tasks anyway.
 			if t.AT > c.PreNow {
-				fmt.Println("ListGroup Postcondition: got owned tasks when not asking for them.")
-				return false
+				return fmt.Errorf("ListGroup Postcondition: got owned tasks when not asking for them.")
 			}
 		}
 	}
 	if len(c.RetTasks) > c.ArgLimit {
-		fmt.Printf("ListGroup Postcondition: asked for max %d tasks, got more (%d).\n", c.ArgLimit, len(c.RetTasks))
-		return false
+		return fmt.Errorf("ListGroup Postcondition: asked for max %d tasks, got more (%d).\n", c.ArgLimit, len(c.RetTasks))
 	}
-	return true
+	return nil
 }
 
 // GroupsCond embodies the pre and post conditions for the store's Groups call.
@@ -260,29 +243,21 @@ func NewGroupsCond() *GroupsCond {
 	}
 }
 
-func (c *GroupsCond) Pre(info interface{}) bool {
+func (c *GroupsCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
 	c.PreOpen = c.Store.IsOpen()
-	return true
+	return nil
 }
 
 func (c *GroupsCond) Call() {
 	c.RetGroups = c.Store.Groups()
 }
 
-func (c *GroupsCond) Post() bool {
-	if !c.PreOpen {
-		if c.RetGroups != nil {
-			fmt.Println("Groups Postcondition: returned non-nil groups when closed.")
-			return false
-		}
-		return true
-	}
+func (c *GroupsCond) Post() error {
 	if c.RetGroups == nil {
-		fmt.Println("Groups Postcondition: returned nil groups when open.")
-		return false
+		return fmt.Errorf("Groups Postcondition: returned nil groups.")
 	}
-	return true
+	return nil
 }
 
 // NumTasksCond embodies the pre and post conditions for the NumTasks call.
@@ -297,29 +272,27 @@ func NewNumTasksCond() *NumTasksCond {
 	}
 }
 
-func (c *NumTasksCond) Pre(info interface{}) bool {
+func (c *NumTasksCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
 	c.PreOpen = c.Store.IsOpen()
-	return true
+	return nil
 }
 
 func (c *NumTasksCond) Call() {
 	c.RetNum = c.Store.NumTasks()
 }
 
-func (c *NumTasksCond) Post() bool {
+func (c *NumTasksCond) Post() error {
 	if !c.PreOpen {
 		if c.RetNum != 0 {
-			fmt.Println("NumTasks Postcondition: non-zero tasks on closed store.")
-			return false
+			return fmt.Errorf("NumTasks Postcondition: non-zero tasks on closed store.")
 		}
-		return true
+		return nil
 	}
 	if c.RetNum < 0 {
-		fmt.Println("NumTasks Postcondition: negative task num returned.")
-		return false
+		return fmt.Errorf("NumTasks Postcondition: negative task num returned.")
 	}
-	return true
+	return nil
 }
 
 // Tasks embodies the pre and post conditions for the Tasks call.
@@ -336,27 +309,25 @@ func NewTasksCond(ids []int64) *TasksCond {
 	}
 }
 
-func (c *TasksCond) Pre(info interface{}) bool {
+func (c *TasksCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
 	c.PreOpen = c.Store.IsOpen()
-	return true
+	return nil
 }
 
 func (c *TasksCond) Call() {
 	c.RetTasks = c.Store.Tasks(c.ArgIDs)
 }
 
-func (c *TasksCond) Post() bool {
+func (c *TasksCond) Post() error {
 	if !c.PreOpen {
 		if c.RetTasks != nil {
-			fmt.Println("Tasks Postcondition: non-nil tasks on closed store.")
-			return false
+			return fmt.Errorf("Tasks Postcondition: non-nil tasks on closed store.")
 		}
-		return true
+		return nil
 	}
 	if len(c.RetTasks) > len(c.ArgIDs) {
-		fmt.Println("Tasks Postcondition: more tasks returned than requested.")
-		return false
+		return fmt.Errorf("Tasks Postcondition: more tasks returned than requested.")
 	}
 	idmap := make(map[int64]struct{})
 	for _, id := range c.ArgIDs {
@@ -365,21 +336,18 @@ func (c *TasksCond) Post() bool {
 	for i, t := range c.RetTasks {
 		if t != nil {
 			if _, ok := idmap[t.ID]; !ok {
-				fmt.Printf("Tasks Postcondition: returned task %d not in requested ID list %d.\n", t.ID, c.ArgIDs)
-				return false
+				return fmt.Errorf("Tasks Postcondition: returned task %d not in requested ID list %d.\n", t.ID, c.ArgIDs)
 			}
 			if t.ID != c.ArgIDs[i] {
-				fmt.Printf("Tasks Postcondition: returned task %d not expected task %d.\n", t.ID, c.ArgIDs[i])
-				return false
+				return fmt.Errorf("Tasks Postcondition: returned task %d not expected task %d.\n", t.ID, c.ArgIDs[i])
 			}
 		}
 		delete(idmap, c.ArgIDs[i])
 	}
 	if len(idmap) != 0 {
-		fmt.Printf("Tasks Postcondition: not all tasks accounted for. missing %v.\n", idmap)
-		return false
+		return fmt.Errorf("Tasks Postcondition: not all tasks accounted for. missing %v.\n", idmap)
 	}
-	return true
+	return nil
 }
 
 // UpdateCond embodies the pre and post conditions for the Update call.
@@ -409,7 +377,7 @@ func NewUpdateCond(owner int32, add, change []*Task, del, dep []int64) *UpdateCo
 	}
 }
 
-func (c *UpdateCond) Pre(info interface{}) bool {
+func (c *UpdateCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
 	changeIDs := make([]int64, len(c.ArgChange))
 	for i, t := range c.ArgChange {
@@ -421,7 +389,7 @@ func (c *UpdateCond) Pre(info interface{}) bool {
 		c.PreDelete = c.Store.Tasks(c.ArgDelete)
 		c.PreDepend = c.Store.Tasks(c.ArgDepend)
 	}
-	return true
+	return nil
 }
 
 func (c *UpdateCond) Call() {
@@ -429,83 +397,71 @@ func (c *UpdateCond) Call() {
 	c.RetTasks, c.RetErr = c.Store.Update(c.ArgOwner, c.ArgAdd, c.ArgChange, c.ArgDelete, c.ArgDepend)
 }
 
-func (c *UpdateCond) Post() bool {
+func (c *UpdateCond) Post() error {
 	if !c.PreOpen {
 		if c.RetErr == nil {
-			fmt.Println("Update Postcondition: no error returned when updating a closed store.")
-			return false
+			return fmt.Errorf("Update Postcondition: no error returned when updating a closed store.")
 		}
-		return true
+		return nil
 	}
 
 	if c.RetErr != nil {
 		if c.existMissingDependencies() {
 			// We expect an error if dependencies are missing.
-			return true
+			return nil
 		}
 		if c.existAlreadyOwned() {
 			// We expect an error if changes or deletions are owned elsewhere.
-			return true
+			return nil
 		}
-		fmt.Printf("Update Postcondition: all tasks exist, none are owned by others, but still got an error: %v\n", c.RetErr)
-		return false
+		return fmt.Errorf("Update Postcondition: all tasks exist, none are owned by others, but still got an error: %v\n", c.RetErr)
 	}
 
 	if c.existMissingDependencies() {
-		fmt.Printf("Update Postcondition: no error returned, but missing dependencies: %v\n", c)
-		return false
+		return fmt.Errorf("Update Postcondition: no error returned, but missing dependencies: %v\n", c)
 	}
 	if c.existAlreadyOwned() {
-		fmt.Printf("Update Postcondition: no error returned, but modifications owned by others: %v\n", c)
-		return false
+		return fmt.Errorf("Update Postcondition: no error returned, but modifications owned by others: %v\n", c)
 	}
 
 	if len(c.RetTasks) != len(c.ArgAdd)+len(c.ArgChange) {
-		fmt.Printf("Update Postcondition: no error returned, but returned tasks not equal to sum of additions and changes: %v != %v + %v\n",
+		return fmt.Errorf("Update Postcondition: no error returned, but returned tasks not equal to sum of additions and changes: %v != %v + %v\n",
 			len(c.RetTasks), len(c.ArgAdd), len(c.ArgChange))
-		return false
 	}
 
 	newAdds := c.RetTasks[:len(c.ArgAdd)]
 	for i, toAdd := range c.ArgAdd {
 		added := newAdds[i]
 		if added.OwnerID != c.ArgOwner {
-			fmt.Printf("Update PostCondition: added task does not have the proper owner set: expected %v, got %v\n", c.ArgOwner, added.OwnerID)
-			return false
+			return fmt.Errorf("Update PostCondition: added task does not have the proper owner set: expected %v, got %v\n", c.ArgOwner, added.OwnerID)
 		}
 		if !c.sameEssentialTask(toAdd, added) {
-			fmt.Printf("Update Postcondition: added task differs from requested add: expected\n%v\ngot\n%v\n", toAdd, added)
-			return false
+			return fmt.Errorf("Update Postcondition: added task differs from requested add: expected\n%v\ngot\n%v\n", toAdd, added)
 		}
 		// TODO: In addition to the below, also ensure that the new ID is
 		// bigger than any of the existing tasks we were looking at.
 		if added.ID == 0 {
-			fmt.Printf("Update Postcondition: added task has zero ID: %v\n", added)
-			return false
+			return fmt.Errorf("Update Postcondition: added task has zero ID: %v\n", added)
 		}
 		expectedAT := toAdd.AT
 		if toAdd.AT <= 0 {
 			expectedAT = c.Now - toAdd.AT
 		}
 		if expectedAT > added.AT+5000 || expectedAT < added.AT-5000 {
-			fmt.Printf("Update Postcondition: added task has weird AT: expected\n%v\ngot\n%v\n", toAdd, added)
-			return false
+			return fmt.Errorf("Update Postcondition: added task has weird AT: expected\n%v\ngot\n%v\n", toAdd, added)
 		}
 	}
 	newChanges := c.RetTasks[len(c.ArgAdd):]
 	for i, toChange := range c.ArgChange {
 		changed := newChanges[i]
 		if changed.OwnerID != c.ArgOwner {
-			fmt.Printf("Update Postcondition: changed task does not have the proper owner set: expected %v, got %v\n", c.ArgOwner, changed.OwnerID)
-			return false
+			return fmt.Errorf("Update Postcondition: changed task does not have the proper owner set: expected %v, got %v\n", c.ArgOwner, changed.OwnerID)
 		}
 		if !c.sameEssentialTask(toChange, changed) {
-			fmt.Printf("Update Postcondition: changed task differs from requested change: expected\n%v\ngot\n%v\n", toChange, changed)
-			return false
+			return fmt.Errorf("Update Postcondition: changed task differs from requested change: expected\n%v\ngot\n%v\n", toChange, changed)
 		}
 		if changed.ID <= toChange.ID {
-			fmt.Printf("Update Postcondition: changed task should have strictly greater ID:\nrequest\n%v\nresponse\n%v\n", toChange, changed)
-			return false
+			return fmt.Errorf("Update Postcondition: changed task should have strictly greater ID:\nrequest\n%v\nresponse\n%v\n", toChange, changed)
 		}
 		// Check that the old tasks are all gone.
 		oldIDs := make([]int64, len(c.ArgChange))
@@ -515,8 +471,7 @@ func (c *UpdateCond) Post() bool {
 		oldTasks := c.Store.Tasks(oldIDs)
 		for _, t := range oldTasks {
 			if t != nil {
-				fmt.Printf("Update Postcondition: changed a task, but the old task is still present in the task store: %v\n", t)
-				return false
+				return fmt.Errorf("Update Postcondition: changed a task, but the old task is still present in the task store: %v\n", t)
 			}
 		}
 	}
@@ -524,9 +479,7 @@ func (c *UpdateCond) Post() bool {
 	deleted := c.Store.Tasks(c.ArgDelete)
 	for i, t := range deleted {
 		if t != nil {
-			fmt.Printf("Update Postcondition: expected deleted tasks to disapper, but found %d still there.\n",
-				c.ArgDelete[i])
-			return false
+			return fmt.Errorf("Update Postcondition: expected deleted tasks to disapper, but found %d still there.\n", c.ArgDelete[i])
 		}
 	}
 
@@ -537,13 +490,12 @@ func (c *UpdateCond) Post() bool {
 	}
 	for _, t := range c.ArgAdd {
 		if _, ok := groupMap[t.Group]; !ok {
-			fmt.Printf("Update Postcondition: added group %s to store, but that group is not present\n", t.Group)
-			return false
+			return fmt.Errorf("Update Postcondition: added group %s to store, but that group is not present\n", t.Group)
 		}
 	}
 
 	// TODO: check that now-empty groups are gone.
-	return true
+	return nil
 }
 
 // sameEssentialTask compares group and data to see if they are the same. It ignores AT, ID, and OwnerID.
@@ -609,12 +561,14 @@ func (c *OpenCond) Store() *TaskStore {
 	return c.RetStore
 }
 
-func (c *OpenCond) Pre(info interface{}) bool {
+func (c *OpenCond) Pre(info interface{}) error {
 	if reflect.ValueOf(c.ArgJournal).IsNil() {
-		fmt.Printf("Open Precondition: nil journal: %v\n", c.ArgJournal)
-		return false
+		return fmt.Errorf("Open Precondition: nil journal: %v\n", c.ArgJournal)
 	}
-	return true
+	if !c.ArgJournal.IsOpen() {
+		return fmt.Errorf("Open Precondition: journal is closed")
+	}
+	return nil
 }
 
 func (c *OpenCond) Call() {
@@ -625,26 +579,23 @@ func (c *OpenCond) Call() {
 	}
 }
 
-func (c *OpenCond) Post() bool {
+func (c *OpenCond) Post() error {
 	if c.RetErr != nil {
 		if c.RetStore != nil {
-			fmt.Printf("Open Postcondition: error returned, but store exists: %v\n", c.RetErr)
-			return false
+			return fmt.Errorf("Open Postcondition: error returned, but store exists: %v\n", c.RetErr)
 		}
-		return true
+		return nil
 	}
 
 	if !c.RetStore.IsOpen() {
-		fmt.Printf("Open Postcondition: successful open, but store is not open: %v\n", c.RetStore)
-		return false
+		return fmt.Errorf("Open Postcondition: successful open, but store is not open: %v\n", c.RetStore)
 	}
 	if c.RetStore.IsStrict() != c.Strict {
-		fmt.Printf("Open Postcondition: successful open, but strict (%v) should be %v: %v\n",
+		return fmt.Errorf("Open Postcondition: successful open, but strict (%v) should be %v: %v\n",
 			c.RetStore.IsStrict(), c.Strict, c.RetStore)
-		return false
 	}
 	// TODO: it would be nice to check that the journal and the contents of the
 	// store actually match. But this is a lot more work, so we'll skip it for
 	// now.
-	return true
+	return nil
 }
