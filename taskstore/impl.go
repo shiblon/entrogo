@@ -210,27 +210,33 @@ func (t *TaskStore) snapshot() error {
 	return nil
 }
 
-func (t *TaskStore) journalAppend(transaction []updateDiff) {
+func (t *TaskStore) journalAppend(transaction []updateDiff) error {
 	if t.journalChan != nil {
 		// Opportunistic
 		t.journalChan <- transaction
-	} else {
-		// Strict
-		t.doAppend(transaction)
+		return nil
 	}
+	// Strict
+	return t.doAppend(transaction)
 }
 
-func (t *TaskStore) doAppend(transaction []updateDiff) {
-	t.journaler.Append(transaction)
+func (t *TaskStore) doAppend(transaction []updateDiff) error {
+	if err := t.journaler.Append(transaction); err != nil {
+		return err
+	}
 	t.txnsSinceSnapshot++
+	return nil
 }
 
 // applyTransaction applies a series of mutations to the task store.
 // Each element of the transaction contains information about the old task and
 // the new task. Deletions are represented by a new nil task.
-func (t *TaskStore) applyTransaction(transaction []updateDiff) {
-	t.journalAppend(transaction)
+func (t *TaskStore) applyTransaction(transaction []updateDiff) error {
+	if err := t.journalAppend(transaction); err != nil {
+		return err
+	}
 	t.playTransaction(transaction, t.snapshotting)
+	return nil
 }
 
 // playTransaction applies the diff (a series of mutations that should happen
@@ -343,6 +349,10 @@ func (t *TaskStore) missingDependencies(deps []int64) []int64 {
 func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	uerr := UpdateError{}
 	transaction := make([]updateDiff, len(up.Deletes)+len(up.Changes))
+	if len(transaction) == 0 {
+		uerr.Bugs = append(uerr.Bugs, fmt.Errorf("empty update requested"))
+		return nil, uerr
+	}
 
 	// Check that the requested operation is allowed.
 	// This means:
@@ -426,7 +436,10 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 		}
 	}
 
-	t.applyTransaction(transaction)
+	if err := t.applyTransaction(transaction); err != nil {
+		uerr.Bugs = append(uerr.Bugs, err)
+		return nil, uerr
+	}
 
 	return newTasks, nil
 }
