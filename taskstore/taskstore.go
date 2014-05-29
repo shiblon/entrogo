@@ -237,9 +237,9 @@ func (t *TaskStore) Groups() []string {
 }
 
 // NumTasks returns the number of tasks being managed by this store.
-func (t *TaskStore) NumTasks() int32 {
+func (t *TaskStore) NumTasks() int {
 	resp := t.sendRequest(nil, t.numTasksChan)
-	return resp.Val.(int32)
+	return resp.Val.(int)
 }
 
 // Claim attempts to find one random unowned task in the specified group and
@@ -254,7 +254,10 @@ func (t *TaskStore) Claim(owner int32, group string, duration int64, depends []i
 		Depends:  depends,
 	}
 	resp := t.sendRequest(claim, t.claimChan)
-	return resp.Val.(*Task), resp.Err
+	if resp.Err != nil {
+		return nil, resp.Err
+	}
+	return resp.Val.(*Task), nil
 }
 
 // Tasks attempts to retrieve particular tasks from the store, specified by ID.

@@ -103,8 +103,12 @@ func (c *ClaimCond) Post() error {
 			break
 		}
 	}
-	if hasNil >= 0 && c.RetErr == nil {
-		return fmt.Errorf("Claim Postcondition: dependency %d missing, but claim succeeded: %v.\n", hasNil)
+	if hasNil >= 0 {
+		if c.RetErr == nil {
+			return fmt.Errorf("Claim Postcondition: dependency %d missing, but claim succeeded: %v.\n", hasNil)
+		}
+		// Got an error when there were failed dependencies. That's good.
+		return nil
 	}
 
 	now := NowMillis()
@@ -264,7 +268,7 @@ func (c *GroupsCond) Post() error {
 type NumTasksCond struct {
 	Store   *TaskStore
 	PreOpen bool
-	RetNum  int32
+	RetNum  int
 }
 
 func NewNumTasksCond() *NumTasksCond {
