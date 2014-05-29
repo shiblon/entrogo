@@ -302,7 +302,6 @@ func (c *NumTasksCond) Post() error {
 // Tasks embodies the pre and post conditions for the Tasks call.
 type TasksCond struct {
 	Store    *TaskStore
-	PreOpen  bool
 	ArgIDs   []int64
 	RetTasks []*Task
 }
@@ -315,7 +314,6 @@ func NewTasksCond(ids []int64) *TasksCond {
 
 func (c *TasksCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
-	c.PreOpen = c.Store.IsOpen()
 	return nil
 }
 
@@ -324,12 +322,6 @@ func (c *TasksCond) Call() {
 }
 
 func (c *TasksCond) Post() error {
-	if !c.PreOpen {
-		if c.RetTasks != nil {
-			return fmt.Errorf("Tasks Postcondition: non-nil tasks on closed store.")
-		}
-		return nil
-	}
 	if len(c.RetTasks) > len(c.ArgIDs) {
 		return fmt.Errorf("Tasks Postcondition: more tasks returned than requested.")
 	}
@@ -337,6 +329,7 @@ func (c *TasksCond) Post() error {
 	for _, id := range c.ArgIDs {
 		idmap[id] = struct{}{}
 	}
+	found := make(map[int64]struct{})
 	for i, t := range c.RetTasks {
 		if t != nil {
 			if _, ok := idmap[t.ID]; !ok {
@@ -346,10 +339,10 @@ func (c *TasksCond) Post() error {
 				return fmt.Errorf("Tasks Postcondition: returned task %d not expected task %d.\n", t.ID, c.ArgIDs[i])
 			}
 		}
-		delete(idmap, c.ArgIDs[i])
+		found[c.ArgIDs[i]] = struct{}{}
 	}
-	if len(idmap) != 0 {
-		return fmt.Errorf("Tasks Postcondition: not all tasks accounted for. missing %v.\n", idmap)
+	if len(found) != len(idmap) {
+		return fmt.Errorf("Tasks Postcondition: not all tasks accounted for: found %v, got %v\n", found, idmap)
 	}
 	return nil
 }
@@ -410,6 +403,10 @@ func (c *UpdateCond) Post() error {
 	}
 
 	if c.RetErr != nil {
+		if len(c.ArgAdd) + len(c.ArgChange) + len(c.ArgDelete) == 0 {
+			// Empty updates are errors and are considered bugs.
+			return nil
+		}
 		if c.existMissingDependencies() {
 			// We expect an error if dependencies are missing.
 			return nil
