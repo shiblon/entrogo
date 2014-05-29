@@ -60,53 +60,6 @@ func (t *TaskStore) getTask(id int64) *Task {
 	return nil
 }
 
-// UpdateError contains a map of errors, the key is the index of a task that
-// was not present in an expected way. All fields are nil when empty.
-type UpdateError struct {
-	// Changes contains the list of tasks that were not present and could thus not be changed.
-	Changes []int64
-
-	// Deletes contains the list of IDs that could not be deleted.
-	Deletes []int64
-
-	// Depends contains the list of IDs that were not present and caused the update to fail.
-	Depends []int64
-
-	// Owned contains the list of IDs that were owned by another client and could not be changed.
-	Owned []int64
-
-	// Bugs contains a list of errors representing caller precondition failures (bad inputs).
-	Bugs []error
-}
-
-func (ue UpdateError) HasDependencyErrors() bool {
-	return ue.Changes != nil || ue.Deletes != nil || ue.Depends != nil || ue.Owned != nil
-}
-
-func (ue UpdateError) HasBugs() bool {
-	return ue.Bugs != nil
-}
-
-func (ue UpdateError) hasAnyErrors() bool {
-	return ue.HasDependencyErrors() || ue.Bugs != nil
-}
-
-// Error returns an error string (and satisfies the Error interface).
-func (ue UpdateError) Error() string {
-	strs := []string{
-		"update error:",
-		fmt.Sprintf("  Change IDs: %d", ue.Changes),
-		fmt.Sprintf("  Delete IDs: %d", ue.Deletes),
-		fmt.Sprintf("  Depend IDs: %d", ue.Depends),
-		fmt.Sprintf("  Owned IDs: %d", ue.Owned),
-		"  Bugs:",
-	}
-	for _, e := range ue.Bugs {
-		strs = append(strs, fmt.Sprintf("    %v", e))
-	}
-	return strings.Join(strs, "\n")
-}
-
 func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) (*TaskStore, error) {
 	if journaler == nil || !journaler.IsOpen() {
 		return nil, ErrJournalClosed
@@ -375,6 +328,17 @@ func canModify(now int64, clientID int32, task *Task) bool {
 	return true
 }
 
+// missingDependencies returns the list of dependencies that are not in the store.
+func (t *TaskStore) missingDependencies(deps []int64) []int64 {
+	var missing []int64
+	for _, id := range deps {
+		if task := t.getTask(id); task == nil {
+			missing = append(missing, id)
+		}
+	}
+	return missing
+}
+
 // update performs (or attempts to perform) a batch task update.
 func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	uerr := UpdateError{}
@@ -388,10 +352,8 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 	// - All of the above must be true *simultaneously* for any operation to be done.
 
 	// Check that the dependencies are all around.
-	for _, id := range up.Depends {
-		if task := t.getTask(id); task == nil {
-			uerr.Depends = append(uerr.Depends, id)
-		}
+	if missing := t.missingDependencies(up.Depends); len(missing) > 0 {
+		uerr.Depends = missing
 	}
 
 	now := NowMillis()
@@ -507,6 +469,13 @@ func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
 	duration := claim.Duration
 	if duration < 0 {
 		duration = 0
+	}
+
+	// First check that all dependencies are available. If dependencies are
+	// missing, we want an error even if there are no claims to be had in this
+	// group. Dependency errors should never, ever pass silently.
+	if missing := t.missingDependencies(claim.Depends); len(missing) > 0 {
+		return nil, UpdateError{Depends: missing}
 	}
 
 	// Check that there are tasks ready to be claimed.
