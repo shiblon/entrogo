@@ -734,27 +734,4 @@ func TestTaskStore_Fuzz(t *testing.T) {
 	if err := quick.Check(f, config); err != nil {
 		t.Error(err)
 	}
-
-	// TODO:
-	// TODO:
-	// TODO:
-	// TODO:
-	//
-	// Make a list of things to do (managed as conditions). Try to cover all of the operations.
-	// The main difficulties are
-	// - Open
-	// - Close
-	// - Claim
-	// 	 - Make sure to test claiming existing tasks and non-existing tasks.
-	// - Update
-	// 	 - Make sure to add,
-	// 	 - delete (existing and non-existing),
-	// 	 - update (existing and non-existing),
-	// 	 - depend (existing and non-existing),
-	// 	 The trick here is going to be making sure that we have some operations
-	// 	 that actually succeed. So we'll need to randomly create successful
-	// 	 operations and then randomly mutate them to fail once in a while for
-	// 	 various reasons.
-	// The rest are read-only operations. We want to fuzz mutations (but we
-	// also want to be sure that the read-only stuff actually works).
 }
