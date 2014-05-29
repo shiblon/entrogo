@@ -52,9 +52,10 @@ type ClaimCond struct {
 	RetTask *Task
 	RetErr  error
 
-	PreNow            int64
-	PreOpen           bool
-	PreUnownedInGroup int
+	PreNow     int64
+	PreOpen    bool
+	PreTasks   []*Task
+	PreUnowned []*Task
 }
 
 func NewClaimCond(owner int32, group string, duration int64, depends []int64) *ClaimCond {
@@ -71,7 +72,8 @@ func (c *ClaimCond) Pre(info interface{}) error {
 	c.PreNow = NowMillis()
 	c.PreOpen = c.Store.IsOpen()
 	if c.PreOpen {
-		c.PreUnownedInGroup = len(c.Store.ListGroup(c.ArgGroup, 0, false))
+		c.PreTasks = c.Store.ListGroup(c.ArgGroup, 0, true)
+		c.PreUnowned = c.Store.ListGroup(c.ArgGroup, 0, false)
 		c.PreDepend = c.Store.Tasks(c.ArgDepend)
 	}
 	return nil
@@ -89,8 +91,30 @@ func (c *ClaimCond) Post() error {
 		if c.RetErr == nil {
 			return fmt.Errorf("Claim Postcondition: no error returned when claiming from a closed store")
 		}
-		if numUnowned := len(c.Store.ListGroup(c.ArgGroup, 0, false)); numUnowned != c.PreUnownedInGroup {
-			return fmt.Errorf("Claim Postcondition: unowned tasks changed, even though the store is closed")
+		tasks := c.Store.ListGroup(c.ArgGroup, 0, true)
+		currentMap := make(map[int64]*Task)
+		for _, t := range tasks {
+			currentMap[t.ID] = t
+		}
+		previousMap := make(map[int64]struct{})
+		for _, t := range c.PreTasks {
+			previousMap[t.ID] = struct{}{}
+			other, ok := currentMap[t.ID]
+			if !ok {
+				return fmt.Errorf("Claim Postcondition: store closed, but task %d disappeared", t.ID)
+			}
+			if !sameEssentialTask(t, other) {
+				return fmt.Errorf("Claim Postcondition: store closed, but task has been altered:\nexpected\n%v\ngot\n%v", t, other)
+			}
+		}
+		if len(previousMap) != len(currentMap) {
+			var added []int64
+			for k := range currentMap {
+				if _, ok := previousMap[k]; !ok {
+					added = append(added, k)
+				}
+			}
+			return fmt.Errorf("Claim Postcondition: store closed, but new tasks appeared: %d", added)
 		}
 		return nil
 	}
@@ -113,7 +137,7 @@ func (c *ClaimCond) Post() error {
 
 	now := NowMillis()
 	numUnowned := len(c.Store.ListGroup(c.ArgGroup, 0, false))
-	if c.PreUnownedInGroup == 0 {
+	if len(c.PreUnowned) == 0 {
 		if numUnowned > 0 {
 			return fmt.Errorf("Claim Postcondition: no tasks to claim, magically produced a claimable task")
 		}
@@ -127,8 +151,8 @@ func (c *ClaimCond) Post() error {
 		return fmt.Errorf("Claim Postcondition: unowned tasks available, but none claimed: error %v\n", c.RetErr)
 	}
 
-	if c.RetTask.AT > now && numUnowned != (c.PreUnownedInGroup-1) {
-		return fmt.Errorf("Claim Postcondition: unowned expected to change by -1, changed by %d", c.PreUnownedInGroup-numUnowned)
+	if c.RetTask.AT > now && numUnowned != len(c.PreUnowned)-1 {
+		return fmt.Errorf("Claim Postcondition: unowned expected to change by -1, changed by %d", len(c.PreUnowned)-numUnowned)
 	}
 
 	if c.RetTask.OwnerID != c.ArgOwner {
@@ -148,8 +172,7 @@ type CloseCond struct {
 }
 
 func NewCloseCond() *CloseCond {
-	return &CloseCond{
-	}
+	return &CloseCond{}
 }
 
 func (c *CloseCond) Pre(info interface{}) error {
@@ -236,8 +259,7 @@ type GroupsCond struct {
 }
 
 func NewGroupsCond() *GroupsCond {
-	return &GroupsCond{
-	}
+	return &GroupsCond{}
 }
 
 func (c *GroupsCond) Pre(info interface{}) error {
@@ -259,13 +281,12 @@ func (c *GroupsCond) Post() error {
 
 // NumTasksCond embodies the pre and post conditions for the NumTasks call.
 type NumTasksCond struct {
-	Store   *TaskStore
-	RetNum  int
+	Store  *TaskStore
+	RetNum int
 }
 
 func NewNumTasksCond() *NumTasksCond {
-	return &NumTasksCond{
-	}
+	return &NumTasksCond{}
 }
 
 func (c *NumTasksCond) Pre(info interface{}) error {
@@ -388,7 +409,7 @@ func (c *UpdateCond) Post() error {
 	}
 
 	if c.RetErr != nil {
-		if len(c.ArgAdd) + len(c.ArgChange) + len(c.ArgDelete) == 0 {
+		if len(c.ArgAdd)+len(c.ArgChange)+len(c.ArgDelete) == 0 {
 			// Empty updates are errors and are considered bugs.
 			return nil
 		}
@@ -421,7 +442,7 @@ func (c *UpdateCond) Post() error {
 		if added.OwnerID != c.ArgOwner {
 			return fmt.Errorf("Update PostCondition: added task does not have the proper owner set: expected %v, got %v\n", c.ArgOwner, added.OwnerID)
 		}
-		if !c.sameEssentialTask(toAdd, added) {
+		if !sameEssentialTask(toAdd, added) {
 			return fmt.Errorf("Update Postcondition: added task differs from requested add: expected\n%v\ngot\n%v\n", toAdd, added)
 		}
 		// TODO: In addition to the below, also ensure that the new ID is
@@ -443,7 +464,7 @@ func (c *UpdateCond) Post() error {
 		if changed.OwnerID != c.ArgOwner {
 			return fmt.Errorf("Update Postcondition: changed task does not have the proper owner set: expected %v, got %v\n", c.ArgOwner, changed.OwnerID)
 		}
-		if !c.sameEssentialTask(toChange, changed) {
+		if !sameEssentialTask(toChange, changed) {
 			return fmt.Errorf("Update Postcondition: changed task differs from requested change: expected\n%v\ngot\n%v\n", toChange, changed)
 		}
 		if changed.ID <= toChange.ID {
@@ -485,7 +506,7 @@ func (c *UpdateCond) Post() error {
 }
 
 // sameEssentialTask compares group and data to see if they are the same. It ignores AT, ID, and OwnerID.
-func (c *UpdateCond) sameEssentialTask(t1, t2 *Task) bool {
+func sameEssentialTask(t1, t2 *Task) bool {
 	for i, d1 := range t1.Data {
 		if d1 != t2.Data[i] {
 			return false
