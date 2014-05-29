@@ -185,7 +185,6 @@ func (c *CloseCond) Post() error {
 // A ListGroupCond embodies the pre and post conditions for listing tasks in a group.
 type ListGroupCond struct {
 	Store         *TaskStore
-	PreOpen       bool
 	PreNow        int64
 	ArgGroup      string
 	ArgLimit      int
@@ -203,7 +202,6 @@ func NewListGroupCond(group string, limit int, allowOwned bool) *ListGroupCond {
 
 func (c *ListGroupCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
-	c.PreOpen = c.Store.IsOpen()
 	c.PreNow = NowMillis()
 	return nil
 }
@@ -213,11 +211,6 @@ func (c *ListGroupCond) Call() {
 }
 
 func (c *ListGroupCond) Post() error {
-	if !c.PreOpen {
-		if c.RetTasks != nil {
-			return fmt.Errorf("ListGroup Postcondition: returned non-nil tasks.")
-		}
-	}
 	if c.ArgLimit <= 0 {
 		return nil // we can't really test this separately from itself.
 	}
@@ -267,7 +260,6 @@ func (c *GroupsCond) Post() error {
 // NumTasksCond embodies the pre and post conditions for the NumTasks call.
 type NumTasksCond struct {
 	Store   *TaskStore
-	PreOpen bool
 	RetNum  int
 }
 
@@ -278,7 +270,6 @@ func NewNumTasksCond() *NumTasksCond {
 
 func (c *NumTasksCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
-	c.PreOpen = c.Store.IsOpen()
 	return nil
 }
 
@@ -287,12 +278,6 @@ func (c *NumTasksCond) Call() {
 }
 
 func (c *NumTasksCond) Post() error {
-	if !c.PreOpen {
-		if c.RetNum != 0 {
-			return fmt.Errorf("NumTasks Postcondition: non-zero tasks on closed store.")
-		}
-		return nil
-	}
 	if c.RetNum < 0 {
 		return fmt.Errorf("NumTasks Postcondition: negative task num returned.")
 	}
@@ -511,12 +496,12 @@ func (c *UpdateCond) sameEssentialTask(t1, t2 *Task) bool {
 
 func (c *UpdateCond) existAlreadyOwned() bool {
 	for _, t := range c.PreChange {
-		if t.OwnerID != c.ArgOwner {
+		if t.OwnerID != c.ArgOwner && t.AT > c.Now {
 			return true
 		}
 	}
 	for _, t := range c.PreDelete {
-		if t.OwnerID != c.ArgOwner {
+		if t.OwnerID != c.ArgOwner && t.AT > c.Now {
 			return true
 		}
 	}
