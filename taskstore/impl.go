@@ -26,6 +26,19 @@ import (
 	"code.google.com/p/entrogo/taskstore/journal"
 )
 
+// TODO: move snapshot functionality completely out, make it operate only on files.
+// This might require making a way to open a read-only taskstore, then a way to
+// dump it to a file.
+
+const (
+	// The maximum number of items to deplete from the cache when snapshotting
+	// is finished but the cache has items in it (during an update).
+	maxCacheDepletion = 20
+
+	// The maximum number of transactions to journal before snapshotting.
+	maxTxnsSinceSnapshot = 30000
+)
+
 // getTask returns the task with the given ID if it exists, else nil.
 func (t *TaskStore) getTask(id int64) *Task {
 	if id <= 0 {
@@ -591,6 +604,18 @@ func (t *TaskStore) sendRequest(val interface{}, ch chan request) response {
 	return <-req.ResultChan
 }
 
+func (t *TaskStore) closed() bool {
+	return t.journaler == nil
+}
+
+func (t *TaskStore) respondIfClosed(ch chan<- response) bool {
+	if t.closed() {
+		ch <- response{nil, ErrAlreadyClosed}
+		return true
+	}
+	return false
+}
+
 // handle deals with all of the basic operations on the task store. All outside
 // requests come through this single loop, which is part of the single-threaded
 // access design enforcement.
@@ -598,7 +623,11 @@ func (t *TaskStore) handle() {
 	idler := time.Tick(5 * time.Second)
 	for {
 		select {
+		// Mutate cases
 		case req := <-t.updateChan:
+			if t.respondIfClosed(req.ResultChan) {
+				continue
+			}
 			tasks, err := t.update(req.Val.(reqUpdate))
 			if err == nil {
 				// Successful txn: is it time to create a full snapshot?
@@ -611,12 +640,29 @@ func (t *TaskStore) handle() {
 				}
 			}
 			req.ResultChan <- response{tasks, err}
+		case req := <-t.claimChan:
+			if t.respondIfClosed(req.ResultChan) {
+				continue
+			}
+			tasks, err := t.claim(req.Val.(reqClaim))
+			req.ResultChan <- response{tasks, err}
+		case req := <-t.snapshotChan:
+			if t.respondIfClosed(req.ResultChan) {
+				continue
+			}
+			req.ResultChan <- response{nil, t.snapshot()}
+		case req := <-t.closeChan:
+			if t.respondIfClosed(req.ResultChan) {
+				continue
+			}
+			err := t.journaler.Close()
+			t.journaler = nil
+			req.ResultChan <- response{nil, err}
+
+		// Read cases
 		case req := <-t.listGroupChan:
 			tasks := t.listGroup(req.Val.(reqListGroup))
 			req.ResultChan <- response{tasks, nil}
-		case req := <-t.claimChan:
-			tasks, err := t.claim(req.Val.(reqClaim))
-			req.ResultChan <- response{tasks, err}
 		case req := <-t.groupsChan:
 			groups := make([]string, 0, len(t.heaps))
 			for k := range t.heaps {
@@ -624,20 +670,10 @@ func (t *TaskStore) handle() {
 			}
 			req.ResultChan <- response{groups, nil}
 		case req := <-t.snapshottingChan:
-			req.ResultChan <- response{t.snapshotting, nil}
-		case req := <-t.snapshotChan:
-			req.ResultChan <- response{nil, t.snapshot()}
-		case err := <-t.snapshotDoneChan:
-			if err != nil {
-				log.Printf("snapshot failed: %v", err)
+			if t.respondIfClosed(req.ResultChan) {
+				continue
 			}
-			t.snapshotting = false
-		case <-idler:
-			// The idler got a chance to tick. Trigger a short depletion.
-			t.depleteCache(maxCacheDepletion)
-		case transaction := <-t.journalChan:
-			// Opportunistic journaling.
-			t.doAppend(transaction)
+			req.ResultChan <- response{t.snapshotting, nil}
 		case req := <-t.stringChan:
 			strs := []string{"TaskStore:", "  groups:"}
 			for name := range t.heaps {
@@ -671,17 +707,25 @@ func (t *TaskStore) handle() {
 				tasks[i] = t.getTask(id)
 			}
 			req.ResultChan <- response{tasks, nil}
-		case req := <-t.closeChan:
-			var err error
-			if t.journaler == nil {
-				err = ErrAlreadyClosed
-			} else {
-				err = t.journaler.Close()
-			}
-			t.journaler = nil
-			req.ResultChan <- response{nil, err}
 		case req := <-t.isOpenChan:
-			req.ResultChan <- response{t.journaler != nil, nil}
+			req.ResultChan <- response{!t.closed(), nil}
+
+		// Internal cases.
+		case <-idler:
+			// The idler got a chance to tick. Trigger a short depletion.
+			t.depleteCache(maxCacheDepletion)
+		case err := <-t.snapshotDoneChan:
+			if err != nil {
+				log.Printf("snapshot failed: %v", err)
+			}
+			t.snapshotting = false
+		case transaction := <-t.journalChan:
+			if t.closed() {
+				log.Printf("opportunistic transaction dropped because journal is closed:\n%v", transaction)
+				continue
+			}
+			// Opportunistic journaling.
+			t.doAppend(transaction)
 		}
 	}
 }

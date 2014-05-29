@@ -34,19 +34,6 @@ var (
 	ErrAlreadyClosed       = errors.New("already closed")
 )
 
-// TODO: move snapshot functionality completely out, make it operate only on files.
-// This might require making a way to open a read-only taskstore, then a way to
-// dump it to a file.
-
-const (
-	// The maximum number of items to deplete from the cache when snapshotting
-	// is finished but the cache has items in it (during an update).
-	maxCacheDepletion = 20
-
-	// The maximum number of transactions to journal before snapshotting.
-	maxTxnsSinceSnapshot = 30000
-)
-
 // TaskStore maintains the tasks.
 type TaskStore struct {
 	// A heap for each group.
