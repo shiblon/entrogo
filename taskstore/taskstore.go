@@ -21,6 +21,8 @@ package taskstore
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"time"
 
@@ -116,6 +118,53 @@ func (t *TaskStore) Close() error {
 func (t *TaskStore) String() string {
 	resp := t.sendRequest(nil, t.stringChan)
 	return resp.Val.(string)
+}
+
+// UpdateError contains a map of errors, the key is the index of a task that
+// was not present in an expected way. All fields are nil when empty.
+type UpdateError struct {
+	// Changes contains the list of tasks that were not present and could thus not be changed.
+	Changes []int64
+
+	// Deletes contains the list of IDs that could not be deleted.
+	Deletes []int64
+
+	// Depends contains the list of IDs that were not present and caused the update to fail.
+	Depends []int64
+
+	// Owned contains the list of IDs that were owned by another client and could not be changed.
+	Owned []int64
+
+	// Bugs contains a list of errors representing caller precondition failures (bad inputs).
+	Bugs []error
+}
+
+func (ue UpdateError) HasDependencyErrors() bool {
+	return ue.Changes != nil || ue.Deletes != nil || ue.Depends != nil || ue.Owned != nil
+}
+
+func (ue UpdateError) HasBugs() bool {
+	return ue.Bugs != nil
+}
+
+func (ue UpdateError) hasAnyErrors() bool {
+	return ue.HasDependencyErrors() || ue.Bugs != nil
+}
+
+// Error returns an error string (and satisfies the Error interface).
+func (ue UpdateError) Error() string {
+	strs := []string{
+		"update error:",
+		fmt.Sprintf("  Change IDs: %d", ue.Changes),
+		fmt.Sprintf("  Delete IDs: %d", ue.Deletes),
+		fmt.Sprintf("  Depend IDs: %d", ue.Depends),
+		fmt.Sprintf("  Owned IDs: %d", ue.Owned),
+		"  Bugs:",
+	}
+	for _, e := range ue.Bugs {
+		strs = append(strs, fmt.Sprintf("    %v", e))
+	}
+	return strings.Join(strs, "\n")
 }
 
 // Update makes changes to the task store. The owner is the ID of the

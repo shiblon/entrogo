@@ -610,7 +610,7 @@ func TestTaskStore_Fuzz(t *testing.T) {
 					owner = randOwner(w.Draw)
 				}
 				if draw < 30 {
-					id := int64(w.Draw)
+					id := int64(draw)
 					if w.Draw < 25 {
 						id = randTask(w.Draw).ID
 					}

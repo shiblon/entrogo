@@ -104,7 +104,7 @@ func (c *ClaimCond) Post() error {
 		}
 	}
 	if hasNil >= 0 && c.RetErr == nil {
-		return fmt.Errorf("Claim Postcondition: dependency %d missing, but claim succeeded.\n", hasNil)
+		return fmt.Errorf("Claim Postcondition: dependency %d missing, but claim succeeded: %v.\n", hasNil)
 	}
 
 	now := NowMillis()
