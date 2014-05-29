@@ -549,10 +549,33 @@ func TestTaskStore_Fuzz(t *testing.T) {
 				apis = append(apis, Which{rand.Intn(APIEnd), rand.Int()})
 			}
 			values[3] = reflect.ValueOf(apis)
+
+			// Generate a few groups to make a pool of.
+			groupPool := []string{"g1", "g2", "g3", "g4"}
+			values[4] = reflect.ValueOf(groupPool)
+
+			// Generate some owner IDs to choose from.
+			values[5] = reflect.ValueOf([]int32{100, 200, 300})
+
+			// Generate a pool of tasks to use for adding to the task store.
+			taskPool := make([]*Task, 30)
+			dtype := reflect.TypeOf([]byte{})
+			for i := range taskPool {
+				dv, ok := quick.Value(dtype, rand)
+				if !ok {
+					panic("could not generate a random byte slice")
+				}
+				taskPool[i] = &Task{
+					Group: groupPool[rand.Intn(len(groupPool))],
+					AT:    NowMillis() + rand.Int63n(1000) - 500,
+					Data:  dv.Interface().([]byte),
+				}
+			}
+			values[6] = reflect.ValueOf(taskPool)
 		},
 	}
 
-	f := func(fs journal.FS, jr journal.Interface, o *OpenCond, which []Which) bool {
+	f := func(fs journal.FS, jr journal.Interface, o *OpenCond, which []Which, groupPool []string, ownerPool []int32, taskPool []*Task) bool {
 		if err := o.Pre(nil); err != nil {
 			fmt.Println("Error:", err)
 			return false
@@ -571,15 +594,12 @@ func TestTaskStore_Fuzz(t *testing.T) {
 			return false
 		}
 
-		owners := []int32{100, 200, 300}
-		groups := []string{"g1", "g2", "g3", "g4", "g5", "g6"}
-
 		randOwner := func(draw int) int32 {
-			return owners[draw%len(owners)]
+			return ownerPool[draw%len(ownerPool)]
 		}
 
 		randGroup := func(draw int) string {
-			return groups[draw%len(groups)]
+			return groupPool[draw%len(groupPool)]
 		}
 
 		randTask := func(draw int) *Task {
@@ -599,32 +619,41 @@ func TestTaskStore_Fuzz(t *testing.T) {
 			var cond Condition
 			switch w.APIIndex {
 			case Claim:
-				draw := w.Draw % 100
+				r := w.Draw % 100
 				group := noGroup
 				owner := noOwner
 				var depends []int64
-				if draw < 80 {
+				if r < 80 {
 					group = randGroup(w.Draw)
 				}
-				if draw < 90 {
+				if r < 90 {
 					owner = randOwner(w.Draw)
 				}
-				if draw < 30 {
-					id := int64(draw)
-					if w.Draw < 25 {
-						id = randTask(w.Draw).ID
+				if r < 30 {
+					id := int64(r)
+					if r < 25 {
+						if t := randTask(w.Draw); t != nil {
+							id = t.ID
+						}
 					}
 					depends = append(depends, id)
 				}
 				var duration int64 = -10000
-				if draw < 70 {
+				if r < 70 {
 					duration = NowMillis() + 5000
 				}
 				cond = NewClaimCond(owner, group, duration, depends)
 			case Close:
 				cond = NewCloseCond()
 			case ListGroup:
-				// TODO
+				r := w.Draw % 100
+				limit := r - 1
+				owned := r%2 == 0
+				group := noGroup
+				if r < 80 {
+					group = randGroup(w.Draw)
+				}
+				cond = NewListGroupCond(group, limit, owned)
 			case Groups:
 				cond = NewGroupsCond()
 			case NumTasks:
@@ -632,7 +661,56 @@ func TestTaskStore_Fuzz(t *testing.T) {
 			case Tasks:
 				// TODO
 			case Update:
-				// TODO
+				r := w.Draw % 100
+				var adds []*Task
+				var changes []*Task
+				var deletes []int64
+				var depends []int64
+				if w.Draw < 40 && len(taskPool) > 0 {
+					n := w.Draw % 10
+					if n > len(taskPool) {
+						n = len(taskPool)
+					}
+					adds = taskPool[len(taskPool)-n:]
+					taskPool = taskPool[:len(taskPool)-n]
+				}
+				if r < 30 {
+					if r < 25 {
+						if t := randTask(w.Draw); t != nil {
+							depends = append(depends, t.ID)
+						}
+					}
+					if t := randTask(w.Draw + 10); t != nil {
+						depends = append(depends, t.ID)
+					}
+					if t := randTask(w.Draw + 7); t != nil {
+						deletes = append(deletes, t.ID)
+					}
+					if len(depends) == 0 || r < 20 {
+						// random ID, probably not in our store.
+						depends = append(depends, int64(r))
+						deletes = append(deletes, int64(r+5))
+					}
+				}
+				if r > 15 {
+					for i := 0; i < r%6+1; i++ {
+						if t := randTask(w.Draw + 13); t != nil {
+							t = t.Copy()
+							t.Data = append(t.Data, byte(w.Draw&0xff))
+							changes = append(changes, t)
+						}
+					}
+					if r > 50 {
+						// Update one that (probably) isn't there.
+						if t := randTask(w.Draw + 3); t != nil {
+							t = t.Copy()
+							t.ID = int64(w.Draw)
+							changes = append(changes, t)
+						}
+					}
+				}
+				fmt.Println(adds, changes, deletes, depends)
+				cond = NewUpdateCond(randOwner(w.Draw), adds, changes, deletes, depends)
 			default:
 				panic(fmt.Sprintf("unknown condition indicator %v - should never happen", w))
 			}
