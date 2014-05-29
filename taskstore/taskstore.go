@@ -153,16 +153,24 @@ func (ue UpdateError) hasAnyErrors() bool {
 
 // Error returns an error string (and satisfies the Error interface).
 func (ue UpdateError) Error() string {
-	strs := []string{
-		"update error:",
-		fmt.Sprintf("  Change IDs: %d", ue.Changes),
-		fmt.Sprintf("  Delete IDs: %d", ue.Deletes),
-		fmt.Sprintf("  Depend IDs: %d", ue.Depends),
-		fmt.Sprintf("  Owned IDs: %d", ue.Owned),
-		"  Bugs:",
+	strs := []string{"update error:"}
+	if len(ue.Changes) > 0 {
+		strs = append(strs, fmt.Sprintf("  Change IDs: %d", ue.Changes))
 	}
-	for _, e := range ue.Bugs {
-		strs = append(strs, fmt.Sprintf("    %v", e))
+	if len(ue.Deletes) > 0 {
+		strs = append(strs, fmt.Sprintf("  Delete IDs: %d", ue.Deletes))
+	}
+	if len(ue.Depends) > 0 {
+		strs = append(strs, fmt.Sprintf("  Depend IDs: %d", ue.Depends))
+	}
+	if len(ue.Owned) > 0 {
+		strs = append(strs, fmt.Sprintf("  Owned IDs: %d", ue.Owned))
+	}
+	if len(ue.Bugs) > 0 {
+		strs = append(strs, "  Bugs:")
+		for _, e := range ue.Bugs {
+			strs = append(strs, fmt.Sprintf("    %v", e))
+		}
 	}
 	return strings.Join(strs, "\n")
 }
@@ -204,6 +212,9 @@ func (t *TaskStore) Update(owner int32, add, change []*Task, del, dep []int64) (
 	}
 
 	resp := t.sendRequest(up, t.updateChan)
+	if resp.Err != nil {
+		return nil, resp.Err
+	}
 	return resp.Val.([]*Task), resp.Err
 }
 

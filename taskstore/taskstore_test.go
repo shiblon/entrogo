@@ -666,7 +666,8 @@ func TestTaskStore_Fuzz(t *testing.T) {
 				var changes []*Task
 				var deletes []int64
 				var depends []int64
-				if w.Draw < 40 && len(taskPool) > 0 {
+				fmt.Println(taskPool)
+				if r < 40 && len(taskPool) > 0 {
 					n := w.Draw % 10
 					if n > len(taskPool) {
 						n = len(taskPool)
@@ -674,6 +675,7 @@ func TestTaskStore_Fuzz(t *testing.T) {
 					adds = taskPool[len(taskPool)-n:]
 					taskPool = taskPool[:len(taskPool)-n]
 				}
+				fmt.Println(taskPool)
 				if r < 30 {
 					if r < 25 {
 						if t := randTask(w.Draw); t != nil {
