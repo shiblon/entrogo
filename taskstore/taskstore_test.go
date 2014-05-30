@@ -114,7 +114,7 @@ func TestTaskStore_Update(t *testing.T) {
 		t.Fatalf("failed to add new tasks: %v", err)
 	}
 
-	now := NowMillis()
+	now := Now()
 
 	// Ensure that the tasks are exactly what we added, but with id values, etc.
 	for i, task := range tasks {
@@ -160,7 +160,7 @@ func TestTaskStore_Update(t *testing.T) {
 
 	// Now claim a task by setting its AT in the future by some number of milliseconds.
 	t0 := added[0].Copy()
-	t0.AT += 60 * 1000 // 1 minute into the future, this will expire
+	t0.AT += int64(time.Minute)
 	updated, err := store.Update(ownerID, nil, []*Task{t0}, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to update task %v: %v", added[0], err)
@@ -174,7 +174,7 @@ func TestTaskStore_Update(t *testing.T) {
 	if updated[0].OwnerID != ownerID {
 		t.Errorf("expected updated task to have owner ID %d, got %d", ownerID, updated[0].OwnerID)
 	}
-	if updated[0].AT-added[0].AT != 60000 {
+	if updated[0].AT-added[0].AT != int64(time.Minute) {
 		t.Errorf("expected updated task to expire 1 minute later than before, but got a difference of %d", updated[0].AT-added[0].AT)
 	}
 	// Task is now owned, so it should not come back if we disallow owned tasks in a group listing.
@@ -188,18 +188,18 @@ func TestTaskStore_Update(t *testing.T) {
 
 	// This owner should be able to update its own future task.
 	t0 = updated[0].Copy()
-	t0.AT += 1000
+	t0.AT += int64(time.Second)
 	updated2, err := store.Update(ownerID, nil, []*Task{t0}, nil, nil)
 	if err != nil {
 		t.Fatalf("couldn't update future task: %v", err)
 	}
-	if updated2[0].AT-updated[0].AT != 1000 {
+	if updated2[0].AT-updated[0].AT != int64(time.Second) {
 		t.Errorf("expected 1-second increase in available time, got difference of %d milliseconds", updated2[0].AT-updated[0].AT)
 	}
 
 	// But another owner should not be able to touch it.
 	t0 = updated2[0].Copy()
-	t0.AT += 2000
+	t0.AT += 2 * int64(time.Second)
 	_, err = store.Update(ownerID+1, nil, []*Task{t0}, nil, nil)
 	if err == nil {
 		t.Fatalf("owner %d should not succeed in updated task owned by %d", ownerID+1, ownerID)
@@ -319,7 +319,7 @@ func ExampleTaskStore_mapReduce() {
 
 	numMappers := 3
 	numReducers := 3
-	maxSleepMillis := 500
+	maxSleepTime := 500 * int64(time.Millisecond)
 
 	mainID := rand.Int31()
 
@@ -354,12 +354,12 @@ func ExampleTaskStore_mapReduce() {
 			mapperID := rand.Int31()
 			for {
 				// Get a task for ten seconds.
-				maptask, err := store.Claim(mapperID, "map", 10000, nil)
+				maptask, err := store.Claim(mapperID, "map", int64(10 * time.Second), nil)
 				if err != nil {
 					panic(fmt.Sprintf("error retrieving tasks: %v", err))
 				}
 				if maptask == nil {
-					time.Sleep(time.Duration(maxSleepMillis) * time.Millisecond)
+					time.Sleep(time.Duration(maxSleepTime))
 					continue
 				}
 				// Now we have a map task. Split the data into words and emit reduce tasks for them.
@@ -397,7 +397,7 @@ func ExampleTaskStore_mapReduce() {
 		if len(tasks) == 0 {
 			break
 		}
-		time.Sleep(time.Duration(rand.Intn(maxSleepMillis)+1) * time.Millisecond)
+		time.Sleep(time.Duration(rand.Int63n(maxSleepTime)+1))
 	}
 
 	// Now do reductions. To do this we list all of the reduceword groups and
@@ -429,12 +429,12 @@ func ExampleTaskStore_mapReduce() {
 		go func() {
 			reducerID := rand.Int31()
 			for {
-				grouptask, err := store.Claim(reducerID, "reduce", 30000, nil)
+				grouptask, err := store.Claim(reducerID, "reduce", int64(30 * time.Second), nil)
 				if err != nil {
 					panic(fmt.Sprintf("failed to get reduce task: %v", err))
 				}
 				if grouptask == nil {
-					time.Sleep(time.Duration(maxSleepMillis) * time.Millisecond)
+					time.Sleep(time.Duration(maxSleepTime))
 					continue
 				}
 				gtdata := string(grouptask.Data)
@@ -478,7 +478,7 @@ func ExampleTaskStore_mapReduce() {
 		if len(tasks) == 0 {
 			break
 		}
-		time.Sleep(time.Duration(rand.Intn(maxSleepMillis)+1) * time.Millisecond)
+		time.Sleep(time.Duration(rand.Int63n(maxSleepTime)+1))
 	}
 
 	// And now we have the finished output in the task store.
@@ -531,7 +531,7 @@ func TestTaskStore_Fuzz(t *testing.T) {
 	}
 
 	config := &quick.Config{
-		MaxCount: 50000,
+		MaxCount: 10000,
 		Values: func(values []reflect.Value, rand *rand.Rand) {
 			// Just set up one journal. All bets are off if exclusivity is broken.
 			fs := journal.NewMemFS("/tmp")
@@ -568,7 +568,7 @@ func TestTaskStore_Fuzz(t *testing.T) {
 				}
 				taskPool[i] = &Task{
 					Group: groupPool[rand.Intn(len(groupPool))],
-					AT:    NowMillis() + rand.Int63n(1000) - 500,
+					AT:    Now() + rand.Int63n(int64(time.Second)) - 5 * int64(time.Millisecond),
 					Data:  dv.Interface().([]byte),
 				}
 			}
@@ -639,9 +639,9 @@ func TestTaskStore_Fuzz(t *testing.T) {
 					}
 					depends = append(depends, id)
 				}
-				var duration int64 = -10000
+				var duration int64 = -10 * int64(time.Second)
 				if r < 70 {
-					duration = NowMillis() + 5000
+					duration = Now() + 5 * int64(time.Second)
 				}
 				cond = NewClaimCond(owner, group, duration, depends)
 			case Close:

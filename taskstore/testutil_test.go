@@ -69,7 +69,7 @@ func NewClaimCond(owner int32, group string, duration int64, depends []int64) *C
 
 func (c *ClaimCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
-	c.PreNow = NowMillis()
+	c.PreNow = Now()
 	c.PreOpen = c.Store.IsOpen()
 	c.PreTasks = c.Store.ListGroup(c.ArgGroup, 0, true)
 	c.PreUnowned = c.Store.ListGroup(c.ArgGroup, 0, false)
@@ -133,7 +133,7 @@ func (c *ClaimCond) Post() error {
 		return nil
 	}
 
-	now := NowMillis()
+	now := Now()
 	numUnowned := len(c.Store.ListGroup(c.ArgGroup, 0, false))
 	if len(c.PreUnowned) == 0 {
 		if numUnowned > 0 {
@@ -223,7 +223,7 @@ func NewListGroupCond(group string, limit int, allowOwned bool) *ListGroupCond {
 
 func (c *ListGroupCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
-	c.PreNow = NowMillis()
+	c.PreNow = Now()
 	return nil
 }
 
@@ -394,7 +394,7 @@ func (c *UpdateCond) Pre(info interface{}) error {
 }
 
 func (c *UpdateCond) Call() {
-	c.Now = NowMillis()
+	c.Now = Now()
 	c.RetTasks, c.RetErr = c.Store.Update(c.ArgOwner, c.ArgAdd, c.ArgChange, c.ArgDelete, c.ArgDepend)
 }
 

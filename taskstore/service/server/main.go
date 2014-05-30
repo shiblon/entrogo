@@ -321,7 +321,7 @@ func (s *StoreHandler) postUpdate(w http.ResponseWriter, r *http.Request) {
 	adds := make([]*taskstore.Task, len(update.Adds))
 	updates := make([]*taskstore.Task, len(update.Updates))
 
-	now := taskstore.NowMillis()
+	now := taskstore.Now()
 
 	for i, a := range update.Adds {
 		ts := a.TimeSpec

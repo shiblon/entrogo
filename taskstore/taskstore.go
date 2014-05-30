@@ -256,7 +256,7 @@ func (t *TaskStore) NumTasks() int {
 // Claim attempts to find one random unowned task in the specified group and
 // set the ownership to the specified owner. If successful, the newly-owned
 // tasks are returned with their AT set to now + duration (in
-// milliseconds).
+// nanoseconds).
 func (t *TaskStore) Claim(owner int32, group string, duration int64, depends []int64) (*Task, error) {
 	claim := reqClaim{
 		OwnerID:  owner,
@@ -291,7 +291,9 @@ func (t *TaskStore) Snapshot() error {
 	return resp.Err
 }
 
-// NowMillis returns the current time in milliseconds since the UTC epoch.
-func NowMillis() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond/time.Nanosecond)
+// Now returns the current time in nanoseconds since the UTC epoch. This is the
+// standard Go time granularity, so it works in all functions needing time
+// without being multiplied by a time.Duration constant.
+func Now() int64 {
+	return time.Now().UnixNano()
 }

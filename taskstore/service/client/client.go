@@ -214,10 +214,9 @@ func (h *HTTPClient) Update(adds, updates []protocol.TaskInfo, deletes, depends 
 }
 
 // Claim attempts to claim a task from the given group. If successful, the task
-// returned will be leaesed for an additional duration
-// milliseconds before ownership expirees. The operation will only succeed if
-// all task IDs in depends exist in the task store. A nil value indicates no
-// dependencies.
+// returned will be leaesed for an additional duration nanoseconds before
+// ownership expirees. The operation will only succeed if all task IDs in
+// depends exist in the task store. A nil value indicates no dependencies.
 //
 // The task returned may be nil, indicating that no tasks were available to be
 // claimed, but otherwise no errors occurred. If the error returned is of type
