@@ -406,7 +406,23 @@ func (c *UpdateCond) Post() error {
 		return nil
 	}
 
+	changeIDs := make(map[int64]struct{})
+	for _, t := range c.ArgChange {
+		changeIDs[t.ID] = struct{}{}
+	}
+
+	delIDs := make(map[int64]struct{})
+	for _, id := range c.ArgDelete {
+		delIDs[id] = struct{}{}
+	}
+
+	depIDs := make(map[int64]struct{})
+	for _, id := range c.ArgDepend {
+		depIDs[id] = struct{}{}
+	}
+
 	if c.RetErr != nil {
+		retErr := c.RetErr.(UpdateError)
 		if len(c.ArgAdd)+len(c.ArgChange)+len(c.ArgDelete) == 0 {
 			// Empty updates are errors and are considered bugs.
 			return nil
@@ -418,6 +434,22 @@ func (c *UpdateCond) Post() error {
 		if c.existAlreadyOwned() {
 			// We expect an error if changes or deletions are owned elsewhere.
 			return nil
+		}
+		// Ensure that all of the IDs in the error condition are known.
+		for _, id := range retErr.Changes {
+			if _, ok := changeIDs[id]; !ok {
+				return fmt.Errorf("Update Postcondition: error ID %d seen, but no such change ID requested: %v", id, retErr)
+			}
+		}
+		for _, id := range retErr.Deletes {
+			if _, ok := delIDs[id]; !ok {
+				return fmt.Errorf("Update Postcondition: error ID %d seen, but no such delete ID requested: %v", id, retErr)
+			}
+		}
+		for _, id := range retErr.Depends {
+			if _, ok := depIDs[id]; !ok {
+				return fmt.Errorf("Update Postcondition: error ID %d seen, but no such depend ID requested: %v", id, retErr)
+			}
 		}
 		return fmt.Errorf("Update Postcondition: all tasks exist, none are owned by others, but still got an error: %v\n", c.RetErr)
 	}
