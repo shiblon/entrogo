@@ -96,6 +96,7 @@ func openTaskStoreHelper(journaler journal.Interface, opportunistic bool) (*Task
 		stringChan:       make(chan request),
 		allTasksChan:     make(chan request),
 		numTasksChan:     make(chan request),
+		latestTaskIDChan: make(chan request),
 		tasksChan:        make(chan request),
 		closeChan:        make(chan request),
 		isOpenChan:       make(chan request),
@@ -675,14 +676,10 @@ func (t *TaskStore) handle() {
 			sort.Sort(taskList(tasks))
 			req.ResultChan <- response{tasks, nil}
 		case req := <-t.numTasksChan:
-			// Count all tasks in the heaps. The complete task map might not be
-			// accurate depending on the state of snapshotting. This is simpler
-			// because it's always right.
-			num := 0
-			for _, h := range t.heaps {
-				num += h.Len()
-			}
-			req.ResultChan <- response{num, nil}
+			// In this implementation, the number of tasks is always equivalent to the latest task ID.
+			req.ResultChan <- response{t.lastTaskID, nil}
+		case req := <-t.latestTaskIDChan:
+			req.ResultChan <- response{t.lastTaskID, nil}
 		case req := <-t.tasksChan:
 			ids := req.Val.([]int64)
 			tasks := make([]*Task, len(ids))

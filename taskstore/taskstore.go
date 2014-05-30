@@ -73,6 +73,7 @@ type TaskStore struct {
 	stringChan       chan request
 	allTasksChan     chan request
 	numTasksChan     chan request
+	latestTaskIDChan chan request
 	tasksChan        chan request
 	closeChan        chan request
 	isOpenChan       chan request
@@ -250,7 +251,13 @@ func (t *TaskStore) Groups() []string {
 // NumTasks returns the number of tasks being managed by this store.
 func (t *TaskStore) NumTasks() int {
 	resp := t.sendRequest(nil, t.numTasksChan)
-	return resp.Val.(int)
+	return int(resp.Val.(int64))
+}
+
+// LatestTaskID returns the most recently-assigned task ID.
+func (t *TaskStore) LatestTaskID() int64 {
+	resp := t.sendRequest(nil, t.latestTaskIDChan)
+	return resp.Val.(int64)
 }
 
 // Claim attempts to find one random unowned task in the specified group and
