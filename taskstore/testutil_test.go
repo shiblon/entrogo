@@ -71,11 +71,9 @@ func (c *ClaimCond) Pre(info interface{}) error {
 	c.Store = info.(*TaskStore)
 	c.PreNow = NowMillis()
 	c.PreOpen = c.Store.IsOpen()
-	if c.PreOpen {
-		c.PreTasks = c.Store.ListGroup(c.ArgGroup, 0, true)
-		c.PreUnowned = c.Store.ListGroup(c.ArgGroup, 0, false)
-		c.PreDepend = c.Store.Tasks(c.ArgDepend)
-	}
+	c.PreTasks = c.Store.ListGroup(c.ArgGroup, 0, true)
+	c.PreUnowned = c.Store.ListGroup(c.ArgGroup, 0, false)
+	c.PreDepend = c.Store.Tasks(c.ArgDepend)
 	return nil
 }
 
