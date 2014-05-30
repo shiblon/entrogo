@@ -366,7 +366,7 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 		uerr.Depends = missing
 	}
 
-	now := NowMillis()
+	now := Now()
 
 	// Check that the deletions exist and are either owned by this client or expired, as well.
 	// Also create transactions for these deletions.
@@ -388,13 +388,14 @@ func (t *TaskStore) update(up reqUpdate) ([]*Task, error) {
 		i := chgi + len(up.Deletes)
 
 		// Additions always OK.
-		if task.ID <= 0 && !uerr.hasAnyErrors() {
+		if task.ID <= 0 {
 			if task.Group == "" {
-				uerr.Bugs = append(uerr.Bugs,
-					fmt.Errorf("update bug: adding task with empty task group not allowed: %v", task))
+				uerr.Bugs = append(uerr.Bugs, fmt.Errorf("update bug: adding task with empty task group not allowed: %v", task))
 				continue
 			}
-			transaction[i] = updateDiff{0, task.Copy()}
+			if !uerr.hasAnyErrors() {
+				transaction[i] = updateDiff{0, task.Copy()}
+			}
 			continue
 		}
 		// Everything else has to exist first.
@@ -463,7 +464,7 @@ func (t *TaskStore) listGroup(lg reqListGroup) []*Task {
 			tasks[i] = h.PeekAt(i).(*Task)
 		}
 	} else {
-		now := NowMillis()
+		now := Now()
 		tasks = make([]*Task, 0, limit)
 		for i, found := 0, 0; i < h.Len() && found < limit; i++ {
 			task := h.PeekAt(i).(*Task)
@@ -477,7 +478,7 @@ func (t *TaskStore) listGroup(lg reqListGroup) []*Task {
 }
 
 func (t *TaskStore) claim(claim reqClaim) (*Task, error) {
-	now := NowMillis()
+	now := Now()
 
 	duration := claim.Duration
 	if duration < 0 {
@@ -553,7 +554,7 @@ type reqClaim struct {
 	// The Group is the name of the group from which a task is to be claimed.
 	Group string
 
-	// Duration is in milliseconds. The task availability, if claimed, will
+	// Duration is in nanoseconds. The task availability, if claimed, will
 	// become now + Duration.
 	Duration int64
 

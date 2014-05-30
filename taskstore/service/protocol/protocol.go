@@ -26,7 +26,7 @@ type TaskInfo struct {
 	Data  string `json:"data"`
 
 	// The TimeSpec, when positive, indicates an absolute timestamp in
-	// milliseconds since the epoch (UTC). When negative, its absolute value
+	// nanoseconds since the epoch (UTC). When negative, its absolute value
 	// will be added to the current time to create an appropriate timestamp.
 	TimeSpec int64 `json:"duration"`
 

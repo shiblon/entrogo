@@ -28,10 +28,10 @@ type Task struct {
 	OwnerID int32  `json:"ownerid"`
 	Group   string `json:"group"`
 
-	// The "Available Time": milliseconds from the Epoch (UTC) when this task
+	// The "Available Time": nanoseconds from the Epoch (UTC) when this task
 	// becomes available. When used in requests, a value <= 0 is subtracted
 	// from "right now" to generate a positive time value. Thus, 0 becomes
-	// "now", and -1000 becomes "1 second from now".
+	// "now", and -time.Second (-1e9) becomes "1 second from now".
 	AT int64 `json:"at"`
 
 	// Data holds the data for this task.
