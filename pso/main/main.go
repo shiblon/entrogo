@@ -32,7 +32,7 @@ var (
 
 	outFreqFlag = flag.Int("outputfreq", 25000, "Evaluations between outputs.")
 
-	outAllFlag = flag.Bool("outputAll", false, "Output all particles instead of just the best.")
+	outAllFlag = flag.Bool("outputall", false, "Output all particles instead of just the best.")
 
 	m0Flag = flag.Float64("m0", 0.75, "'Starting' momentum.")
 	m1Flag = flag.Float64("m1", 0.4, "'Ending' momentum.")
@@ -486,11 +486,12 @@ func main() {
 	}
 
 	evals := updater.Update()
+	nextOutput := 0
 	outFn(evals)
 	for evals < *iterFlag {
-		last := evals
 		evals += updater.Update()
-		if last/outputevery < evals/outputevery {
+		if evals >= nextOutput {
+			nextOutput += outputevery
 			outFn(evals)
 		}
 	}
