@@ -1,10 +1,11 @@
 package particle
 
 import (
-	"captcha/fitness"
-	"code.google.com/p/entrogo/vec"
 	"fmt"
 	"math/rand"
+
+	"github.com/shiblon/entrogo/vec"
+	"github.com/shiblon/entrogo/fitness"
 )
 
 type TempParticleState struct {

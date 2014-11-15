@@ -1,11 +1,12 @@
 package fitness
 
 import (
-	"code.google.com/p/entrogo/vec"
 	"fmt"
 	"image"
 	"math"
 	"math/rand"
+
+	"github.com/shiblon/entrogo/vec"
 )
 
 const (

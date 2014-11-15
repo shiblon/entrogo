@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"code.google.com/p/entrogo/mealy"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +9,8 @@ import (
 	"log"
 	"os"
 	"strings"
+
+	"github.com/shiblon/entrogo/mealy"
 )
 
 var (

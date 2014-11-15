@@ -1,13 +1,14 @@
 package main
 
 import (
-	"captcha/fitness"
 	"flag"
 	"fmt"
 	"image"
 	"image/png"
 	"os"
 	"path/filepath"
+
+	"github.com/shiblon/entrogo/fitness"
 )
 
 var (

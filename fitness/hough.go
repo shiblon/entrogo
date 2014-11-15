@@ -1,7 +1,6 @@
 package fitness
 
 import (
-	"code.google.com/p/entrogo/vec"
 	"fmt"
 	"image"
 	"image/color"
@@ -9,6 +8,8 @@ import (
 	_ "image/png"
 	"math"
 	"os"
+
+	"github.com/shiblon/entrogo/vec"
 )
 
 type Featurer interface {

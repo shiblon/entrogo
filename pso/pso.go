@@ -1,12 +1,13 @@
 package pso
 
 import (
-	"captcha/fitness"
-	"captcha/pso/particle"
-	"captcha/pso/topology"
-	"code.google.com/p/entrogo/vec"
 	"fmt"
 	"math"
+
+	"github.com/shiblon/entrogo/fitness"
+	"github.com/shiblon/entrogo/pso/particle"
+	"github.com/shiblon/entrogo/pso/topology"
+	"github.com/shiblon/entrogo/vec"
 )
 
 // This generates the momentum multiplier, applied to the previous velocity.
@@ -271,7 +272,7 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 	scratch := particle.Scratch()
 
 	dot := particle.Vel.Normalized().Dot(acc.Normalized())
-	u.printChan <- fmt.Sprintf("tug=%v", dot)
+	// u.printChan <- fmt.Sprintf("tug=%v", dot)
 
 	scratch.Vel.Replace(particle.Vel).SMulBy(u.momentum(particle, dot)).AddBy(acc)
 

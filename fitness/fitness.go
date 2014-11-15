@@ -1,10 +1,11 @@
 package fitness
 
 import (
-	"code.google.com/p/entrogo/vec"
 	"fmt"
 	"math"
 	"math/rand"
+
+	"github.com/shiblon/entrogo/vec"
 )
 
 type Function interface {

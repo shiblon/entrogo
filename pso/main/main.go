@@ -1,9 +1,6 @@
 package main
 
 import (
-	"captcha/fitness"
-	"captcha/pso"
-	"captcha/pso/topology"
 	//	"encoding/json"
 	"flag"
 	"fmt"
@@ -14,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/shiblon/entrogo/fitness"
+	"github.com/shiblon/entrogo/pso"
+	"github.com/shiblon/entrogo/pso/topology"
 )
 
 // ./main -fit=rosenbrock:100:0.25 -topo=star:5 -m0=0.75 -m1=0.4 -cdecay=0.999 -mtype=randexplore -n=250000
@@ -30,6 +31,8 @@ var (
 	iterFlag = flag.Int("n", 250000, "Number of evaluations.")
 
 	outFreqFlag = flag.Int("outputfreq", 25000, "Evaluations between outputs.")
+
+	outAllFlag = flag.Bool("outputAll", false, "Output all particles instead of just the best.")
 
 	m0Flag = flag.Float64("m0", 0.75, "'Starting' momentum.")
 	m1Flag = flag.Float64("m1", 0.4, "'Ending' momentum.")
@@ -470,14 +473,26 @@ func main() {
 		*/
 	}
 
+	outputAll := func(evals int) {
+		fmt.Println(evals, "evals")
+		for i, p := range updater.Swarm() {
+			fmt.Println(i, p, "momentum:", config.Momentum(updater, evals, p.Id))
+		}
+	}
+
+	outFn := outputBest
+	if *outAllFlag {
+		outFn = outputAll
+	}
+
 	evals := updater.Update()
-	outputBest(evals)
+	outFn(evals)
 	for evals < *iterFlag {
 		last := evals
 		evals += updater.Update()
 		if last/outputevery < evals/outputevery {
-			outputBest(evals)
+			outFn(evals)
 		}
 	}
-	outputBest(evals)
+	outFn(evals)
 }
