@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/shiblon/entrogo/scrabble/board"
+	"github.com/shiblon/entrogo/scrabble/index"
 	"io/ioutil"
 	"log"
-	"monson/scrabble/board"
-	"monson/scrabble/index"
 	"os"
 	"sort"
 	"strings"

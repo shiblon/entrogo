@@ -1,8 +1,8 @@
 package index
 
 import (
-	"code.google.com/p/entrogo/mealy"
 	"fmt"
+	"github.com/shiblon/entrogo/mealy"
 	"io"
 	"log"
 	"sort"
