@@ -3,13 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/shiblon/entrogo/scrabble/board"
-	"github.com/shiblon/entrogo/scrabble/index"
 	"io/ioutil"
 	"log"
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/shiblon/entrogo/scrabble/board"
+	"github.com/shiblon/entrogo/scrabble/index"
 )
 
 // Flags
@@ -105,17 +106,20 @@ type foundword struct {
 	direction int
 	start     int
 	score     int
+	blanks    []int
 }
 
 func (self foundword) String() string {
 	switch self.direction {
 	case RIGHT:
-		return fmt.Sprintf("%s (%d): %d, %d across", self.word, self.score, self.line, self.start)
+		return fmt.Sprintf("%s (%d): %d, %d across, %v",
+		self.word, self.score, self.line, self.start, self.blanks)
 	case DOWN:
-		return fmt.Sprintf("%s (%d): %d, %d down", self.word, self.score, self.start, self.line)
+		return fmt.Sprintf("%s (%d): %d, %d down, %v",
+		self.word, self.score, self.start, self.line, self.blanks)
 	}
-	return fmt.Sprintf("%s (%d): direction? line %d, start %d",
-		self.word, self.score, self.line, self.start)
+	return fmt.Sprintf("%s (%d): direction? line %d, start %d, %v",
+		self.word, self.score, self.line, self.start, self.blanks)
 }
 
 type foundwords []foundword
@@ -213,6 +217,10 @@ func BoardWords(board board.Board, idx index.Index, available map[byte]int) <-ch
 		for row := 0; row < 15; row++ {
 			q := board.RowQuery(row)
 			for found := range LineWords(row, RIGHT, idx, q, available) {
+				// TODO: Here and below, find all possible placements of blanks
+				// for this word, and produce all such words, scoring them
+				// differently (a blank on a TL tile is different than a real
+				// letter).
 				found.score = board.ScoreRowPlacement(row, found.start, found.word)
 				out <- found
 			}
