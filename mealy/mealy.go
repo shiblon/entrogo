@@ -3,7 +3,7 @@ Implements a Mealy Machine as described in the paper at
   http://www.n3labs.com/pdf/lexicon-squeeze.pdf
 The machine is defined for byte values, and serializes with that assumption.
 */
-package mealy
+package mealy // import "entrogo.com/experimental/mealy"
 
 import (
 	"bytes"
