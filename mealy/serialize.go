@@ -1,4 +1,4 @@
-package mealy
+package mealy // import "entrogo.com/experimental/mealy"
 
 import (
 	"encoding/binary"
