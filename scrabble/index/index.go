@@ -2,11 +2,12 @@ package index
 
 import (
 	"fmt"
-	"github.com/shiblon/entrogo/mealy"
 	"io"
 	"log"
 	"sort"
 	"strings"
+
+	"entrogo.com/mealy"
 )
 
 type MissingLetterConstraint struct {
