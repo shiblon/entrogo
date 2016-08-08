@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"image"
 	"math"
+	"math/rand"
 
 	"github.com/shiblon/entrogo/vec"
-	"github.com/shiblon/entrogo/rand"
 )
 
 type HoughCircle struct {
@@ -119,11 +119,11 @@ func (f *HoughCircle) Dims() int {
 	return 3 * f.numCircles
 }
 
-func (f *HoughCircle) RandomPos(rgen rand.Rand) vec.Vec {
+func (f *HoughCircle) RandomPos(rgen *rand.Rand) vec.Vec {
 	return UniformHyperrectSample(f.minCorner, f.maxCorner, rgen)
 }
 
-func (f *HoughCircle) RandomVel(rgen rand.Rand) vec.Vec {
+func (f *HoughCircle) RandomVel(rgen *rand.Rand) vec.Vec {
 	return UniformHyperrectSample(f.maxCorner.Sub(f.minCorner).SDiv(2).Negated(), f.maxCorner.Sub(f.minCorner).SDiv(2), rgen)
 }
 
