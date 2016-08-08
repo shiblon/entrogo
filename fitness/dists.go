@@ -2,7 +2,7 @@ package fitness
 
 import (
 	"math"
-	"math/rand"
+	"github.com/shiblon/entrogo/rand"
 )
 
 const (
@@ -12,7 +12,7 @@ const (
 )
 
 // Snorm computes a single sample from a one-dimensional normal distribution.
-func Snorm(mu, sigma float64, rgen *rand.Rand) float64 {
+func Snorm(mu, sigma float64, rgen rand.Rand) float64 {
 	return rgen.NormFloat64()*sigma + mu
 }
 
@@ -23,7 +23,7 @@ func lognormParamsFromNormParams(mean, stddev float64) (float64, float64) {
 }
 
 // Slognorm computes a single sample from a one-dimensional log normal distribution.
-func Slognorm(mu, sigma float64, rgen *rand.Rand) float64 {
+func Slognorm(mu, sigma float64, rgen rand.Rand) float64 {
 	// The logarithm of x is distributed normally with these parameters, so we
 	// get a normal draw and convert it back out of log space.
 	return math.Exp(mu + sigma*Snorm(0, 1, rgen))

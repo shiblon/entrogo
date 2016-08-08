@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"image"
 	"math"
-	"math/rand"
 
 	"github.com/shiblon/entrogo/vec"
+	"github.com/shiblon/entrogo/rand"
 )
 
 const (
@@ -362,12 +362,12 @@ func (f *HoughTemplate) TemplateForIndex(i float64) (string, *DiscreteTemplate) 
 	return name, f.templates[name]
 }
 
-func (f *HoughTemplate) RandomPos(rgen *rand.Rand) vec.Vec {
+func (f *HoughTemplate) RandomPos(rgen rand.Rand) vec.Vec {
 	// Independent draws in all initial dimensions.
 	return UniformHyperrectSample(f.minCorner, f.maxCorner, rgen)
 }
 
-func (f *HoughTemplate) RandomVel(rgen *rand.Rand) vec.Vec {
+func (f *HoughTemplate) RandomVel(rgen rand.Rand) vec.Vec {
 	max := f.maxCorner.Sub(f.minCorner)
 	return UniformHyperrectSample(f.minCorner.Sub(max), max, rgen)
 }

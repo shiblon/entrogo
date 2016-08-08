@@ -3,9 +3,9 @@ package fitness
 import (
 	"fmt"
 	"math"
-	"math/rand"
 
 	"github.com/shiblon/entrogo/vec"
+	"github.com/shiblon/entrogo/rand"
 )
 
 type Function interface {
@@ -13,10 +13,10 @@ type Function interface {
 	Query(vec.Vec) float64
 
 	// Produces a random position from the function's domain.
-	RandomPos(rgen *rand.Rand) vec.Vec
+	RandomPos(rgen rand.Rand) vec.Vec
 
 	// Produces a random velocity suitable for exploring the function's domain.
-	RandomVel(rgen *rand.Rand) vec.Vec
+	RandomVel(rgen rand.Rand) vec.Vec
 
 	// Compare two fitness values. True if (a <less fit than> b)
 	LessFit(a, b float64) bool
@@ -36,7 +36,7 @@ type Function interface {
 
 // UniformCubeSample samples uniformly from a cube with corners at (min, min,
 // min, ...), (max, max, max, ...).
-func UniformCubeSample(dims int, min, max float64, rgen *rand.Rand) (v vec.Vec) {
+func UniformCubeSample(dims int, min, max float64, rgen rand.Rand) (v vec.Vec) {
 	v = vec.Vec(make([]float64, dims))
 	for i := range v {
 		v[i] = min + rgen.Float64()*(max-min)
@@ -45,7 +45,7 @@ func UniformCubeSample(dims int, min, max float64, rgen *rand.Rand) (v vec.Vec) 
 }
 
 // UnformHyperrectSample samples uniformly from a hyper rectangle with the given corners.
-func UniformHyperrectSample(min, max vec.Vec, rgen *rand.Rand) (v vec.Vec) {
+func UniformHyperrectSample(min, max vec.Vec, rgen rand.Rand) (v vec.Vec) {
 	v = vec.New(len(min))
 	for i := range v {
 		v[i] = min[i] + rgen.Float64()*(max[i]-min[i])
@@ -97,11 +97,11 @@ func (f *basicFitness) VecInterpreter(v vec.Vec) string {
 	return fmt.Sprintf("%f", []float64(v))
 }
 
-func (f *basicFitness) RandomPos(rgen *rand.Rand) vec.Vec {
+func (f *basicFitness) RandomPos(rgen rand.Rand) vec.Vec {
 	return UniformHyperrectSample(f.minCorner, f.maxCorner, rgen).Sub(f.Center)
 }
 
-func (f *basicFitness) RandomVel(rgen *rand.Rand) vec.Vec {
+func (f *basicFitness) RandomVel(rgen rand.Rand) vec.Vec {
 	return UniformHyperrectSample(f.negSideLengths, f.sideLengths, rgen)
 }
 

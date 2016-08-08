@@ -10,10 +10,10 @@ import (
 	"github.com/shiblon/entrogo/vec"
 )
 
-// This generates the momentum multiplier, applied to the previous velocity.
+// MomentumFunc generates the momentum multiplier, applied to the previous velocity.
 type MomentumFunc func(u Updater, iter int, particle int) float64
 
-// This generates a multiplier for the momentum based on 'tug', which is the
+// TugFunc generates a multiplier for the momentum based on 'tug', which is the
 // dot product of the previous velocity vector with the acceleration. This
 // tells us if we are trying to move away from the evidence, for example, if
 // tug in [-1, 0).
@@ -232,8 +232,8 @@ func (u *standardUpdater) Update() int {
 	return num_evaluations
 }
 
-func (u *standardUpdater) momentum(particle *particle.Particle, dot float64) float64 {
-	return u.Conf.Momentum(u, u.totalEvals, particle.Id) * u.Conf.Tug(dot)
+func (u *standardUpdater) momentum(p *particle.Particle, dot float64) float64 {
+	return u.Conf.Momentum(u, u.totalEvals, p.Id) * u.Conf.Tug(dot)
 }
 
 func (u *standardUpdater) topoLessFit(a, b int) bool {
@@ -248,33 +248,33 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 	cogLower := u.Conf.CogLower
 	maxvel_fraction := u.Conf.VelCapMultiplier
 
-	particle := u.swarm[pidx]
+	p := u.swarm[pidx]
 
 	informer := u.swarm[u.Topology.BestNeighbor(pidx, u.topoLessFit)]
-	dims := len(particle.Pos)
+	dims := len(p.Pos)
 
 	if adapt != 1.0 {
 		socFactor := math.Pow(adapt, float64(informer.T-informer.BestT))
-		cogFactor := math.Pow(adapt, float64(particle.T-particle.BestT))
+		cogFactor := math.Pow(adapt, float64(p.T-p.BestT))
 		soc *= socFactor
 		socLower *= socFactor
 		cog *= cogFactor
 		cogLower *= cogFactor
 	}
 
-	rand_soc := vec.NewFFilled(dims, particle.Rand().Float64).SMulBy(soc - socLower).SAddBy(socLower)
-	rand_cog := vec.NewFFilled(dims, particle.Rand().Float64).SMulBy(cog - cogLower).SAddBy(cogLower)
+	rand_soc := vec.NewFFilled(dims, p.Rand.Float64).SMulBy(soc - socLower).SAddBy(socLower)
+	rand_cog := vec.NewFFilled(dims, p.Rand.Float64).SMulBy(cog - cogLower).SAddBy(cogLower)
 
-	to_informer := informer.BestPos.Sub(particle.Pos).MulBy(rand_soc)
-	acc := particle.BestPos.Sub(particle.Pos).MulBy(rand_cog).AddBy(to_informer)
+	to_informer := informer.BestPos.Sub(p.Pos).MulBy(rand_soc)
+	acc := p.BestPos.Sub(p.Pos).MulBy(rand_cog).AddBy(to_informer)
 
 	// Cap the velocity if necessary.
-	scratch := particle.Scratch()
+	scratch := p.Scratch()
 
-	dot := particle.Vel.Normalized().Dot(acc.Normalized())
+	dot := p.Vel.Normalized().Dot(acc.Normalized())
 	// u.printChan <- fmt.Sprintf("tug=%v", dot)
 
-	scratch.Vel.Replace(particle.Vel).SMulBy(u.momentum(particle, dot)).AddBy(acc)
+	scratch.Vel.Replace(p.Vel).SMulBy(u.momentum(p, dot)).AddBy(acc)
 
 	sl := u.Fitness.SideLengths()
 	for i, v := range scratch.Vel {
@@ -286,7 +286,7 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 		}
 	}
 
-	scratch.Pos.Replace(particle.Pos).AddBy(scratch.Vel)
+	scratch.Pos.Replace(p.Pos).AddBy(scratch.Vel)
 	scratch.Bounced = false
 }
 
