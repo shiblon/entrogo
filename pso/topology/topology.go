@@ -122,7 +122,7 @@ type RandomExpander struct {
 }
 
 // NewRandomExpander creates a new random expander graph.
-func NewRandomExpander(numParticles, degree int) *RandomExpander {
+func NewRandomExpander(rsrc rand.Source, numParticles, degree int) *RandomExpander {
 	if degree >= numParticles {
 		panic(fmt.Sprintf("Number of RandomExpander out-bound edges (%d) >= particles (%d):", degree, numParticles))
 	} else if degree <= 0 {
@@ -132,7 +132,7 @@ func NewRandomExpander(numParticles, degree int) *RandomExpander {
 	// Create the random channel and start populating it.
 	randchan := make(chan int, degree)
 	go func() {
-		r := rand.New(rand.NewSource(rand.Int63()))
+		r := rand.New(rsrc)
 		for {
 			randchan <- r.Intn(numParticles - 1)
 		}

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/shiblon/entrogo/vec"
 	"github.com/shiblon/entrogo/fitness"
+	"github.com/shiblon/entrogo/vec"
 )
 
 type TempParticleState struct {
@@ -39,8 +39,8 @@ type Particle struct {
 
 // NewRandomParticle gets its values by sampling from the fitness domain. It
 // also evaluates the function if "evaluate" is true.
-func NewRandomParticle(idx int, f fitness.Function) (par *Particle) {
-	r := rand.New(rand.NewSource(rand.Int63()))
+func NewRandomParticle(rsrc rand.Source, idx int, f fitness.Function) (par *Particle) {
+	r := rand.New(rsrc)
 	pos := f.RandomPos(r)
 	vel := f.RandomVel(r)
 	return &Particle{

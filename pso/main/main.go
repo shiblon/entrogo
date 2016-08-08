@@ -128,7 +128,7 @@ func main() {
 	case "star":
 		topo = topology.NewStar(parseInt(topoargs[0]))
 	case "expander":
-		topo = topology.NewRandomExpander(parseInt(topoargs[0]), parseInt(topoargs[1]))
+		topo = topology.NewRandomExpander(rand.NewSource(rand.Int63()), parseInt(topoargs[0]), parseInt(topoargs[1]))
 	default:
 		panic(fmt.Sprintf("Unknown topology name '%v' in flag '%v'.", toponame, *topoFlag))
 	}
@@ -137,7 +137,9 @@ func main() {
 
 	numIters := *iterFlag
 
-	config := pso.NewBasicConfig()
+	config := pso.NewBasicConfig(func() rand.Source {
+		return rand.NewSource(rand.Int63())
+	})
 	config.DecayAdapt = *cognitiveDecayFlag
 	config.DecayRadius = *radiusDecayFlag
 	config.RadiusMultiplier = *radiusMultiplierFlag

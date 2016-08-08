@@ -3,6 +3,7 @@ package pso
 import (
 	"fmt"
 	"math"
+	"math/rand"
 
 	"github.com/shiblon/entrogo/fitness"
 	"github.com/shiblon/entrogo/pso/particle"
@@ -20,6 +21,7 @@ type MomentumFunc func(u Updater, iter int, particle int) float64
 type TugFunc func(dot float64) float64
 
 type Config struct {
+	NewRNG           func() rand.Source
 	DecayAdapt       float64
 	DecayRadius      float64
 	Momentum0        float64
@@ -35,8 +37,9 @@ type Config struct {
 	BounceMultiplier float64 // how much further to bounce out than usual.
 }
 
-func NewBasicConfig() *Config {
+func NewBasicConfig(newRNG func() rand.Source) *Config {
 	c := &Config{
+		NewRNG:           newRNG,
 		DecayAdapt:       0.999,
 		DecayRadius:      0.9,
 		Momentum0:        0.75,
@@ -154,7 +157,7 @@ func (u *standardUpdater) init() int {
 	particles := make(chan *particle.Particle)
 	for i := range u.swarm {
 		go func() {
-			par := particle.NewRandomParticle(i, u.Fitness)
+			par := particle.NewRandomParticle(u.Conf.NewRNG(), i, u.Fitness)
 			par.ResetVal(u.Fitness.Query(par.Pos))
 			particles <- par
 		}()
