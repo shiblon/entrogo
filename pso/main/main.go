@@ -1,7 +1,6 @@
 package main
 
 import (
-	//	"encoding/json"
 	"flag"
 	"fmt"
 	"math"
@@ -451,13 +450,6 @@ func main() {
 		best := updater.BestParticle()
 		fmt.Println(evals, "evals")
 		fmt.Println(best, "momentum:", config.Momentum(updater, evals, best.Id))
-		/*
-			if soutput, err := json.Marshal(updater.Swarm()); err == nil {
-				fmt.Printf("%d: %v\n", evals, string(soutput))
-			} else {
-				fmt.Errorf("Error converting to json: %v", err)
-			}
-		*/
 	}
 
 	outputAll := func(evals int) {
