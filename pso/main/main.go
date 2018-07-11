@@ -7,7 +7,6 @@ import (
 	"math"
 	"math/rand"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -78,7 +77,6 @@ func parseFloat(val string) float64 {
 }
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
 	rand.Seed(time.Now().UTC().UnixNano())
 
 	flag.Parse()

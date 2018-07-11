@@ -1,3 +1,4 @@
+// Package particle contains the definition of a single PSO particle.
 package particle
 
 import (
@@ -8,12 +9,14 @@ import (
 	"github.com/shiblon/entrogo/vec"
 )
 
+// TempParticleState contains the things that change between evaluations. Used for batching.
 type TempParticleState struct {
 	Pos, Vel vec.Vec
 	Val      float64
 	Bounced  bool
 }
 
+// Particle is a single PSO particle, containing all current and history (and scratch) state.
 type Particle struct {
 	Id int
 	// Current state
