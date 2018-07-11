@@ -106,21 +106,6 @@ func main() {
 		panic(fmt.Sprintf("Unknown function name '%v' in flag '%v'.", fitname, *fitnessFlag))
 	}
 
-	/*
-		// Hough fitness
-		circleStddevMultiplier := 0.2
-		numCircles := 1
-		img, houghFeatures := fitness.FeaturesFromImageFile("circles--magnitude.png")
-
-		fitfuncs["houghcircle"] = fitness.NewHoughCircle(
-			img.Bounds(),
-			houghFeatures,
-			numCircles,
-			circleStddevMultiplier)
-
-		// fitfuncs["houghtemplate"] = MakeHoughTemplateFunc()
-	*/
-
 	var topo topology.Topology
 	switch toponame {
 	case "ring":
