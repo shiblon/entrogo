@@ -154,7 +154,7 @@ func NewRandomExpander(rsrc rand.Source, numParticles, degree int) (*RandomExpan
 		num:    numParticles,
 		degree: degree,
 		rand:   randchan,
-	}
+	}, nil
 }
 
 // Tick does nothing, since Ring is a static topology.
