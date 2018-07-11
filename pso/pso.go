@@ -1,3 +1,5 @@
+// Package pso contains the main PSO orchestration algorithms that make swarms
+// do their optimization thing.
 package pso
 
 import (
@@ -20,23 +22,27 @@ type MomentumFunc func(u Updater, iter int, particle int) float64
 // tug in [-1, 0).
 type TugFunc func(dot float64) float64
 
+// Config holds all of the basic configuration for a full particle swarm run.
 type Config struct {
-	NewRNG           func() rand.Source
-	DecayAdapt       float64
-	DecayRadius      float64
-	Momentum0        float64
-	Momentum1        float64
-	Momentum         MomentumFunc
-	Tug              TugFunc
-	SocConst         float64
-	CogConst         float64
-	SocLower         float64
-	CogLower         float64
-	VelCapMultiplier float64
-	RadiusMultiplier float64
-	BounceMultiplier float64 // how much further to bounce out than usual.
+	NewRNG           func() rand.Source // creates a new random source
+	DecayAdapt       float64            // multiplier applied to soc/cog constants during non-improvement
+	DecayRadius      float64            // multiplier applied to radius after each bounce
+	Momentum0        float64            // momentum starting point (also used for constant momentum)
+	Momentum1        float64            // momentum "endpoint" (e.g., for linear momentum)
+	Momentum         MomentumFunc       // produce the current momentum
+	Tug              TugFunc            // produce a momentum multiplier based on degree of "tug" toward information.
+	SocConst         float64            // initial social constant.
+	CogConst         float64            // initial cognitive constant.
+	SocLower         float64            // lower bound for social constant.
+	CogLower         float64            // lower bound for cognitive constant.
+	VelCapMultiplier float64            // maximum velocity to allow as a function of the function's domain diagonal.
+	RadiusMultiplier float64            // how much to decay the radius when bouncing.
+	BounceMultiplier float64            // how much further to bounce out than usual.
 }
 
+// NewBasicConfig creates a basic PSO configuration with fairly useful
+// parameters (decaying soc/cog adaptation for non-improvement, bouncing with
+// radius decay and distance adjustment, and constant momentum).
 func NewBasicConfig(newRNG func() rand.Source) *Config {
 	c := &Config{
 		NewRNG:           newRNG,
@@ -63,6 +69,8 @@ func NewBasicConfig(newRNG func() rand.Source) *Config {
 	return c
 }
 
+// Updater is used to manage a swarm from one moment to the next. The central
+// part is the Update function, which causes the clock to tick.
 type Updater interface {
 	// Initialized tells us whether the swarm is yet at t0.
 	Initialized() bool
@@ -80,7 +88,10 @@ type Updater interface {
 	Batches() (improved, total int)
 }
 
-type standardUpdater struct {
+// StandardUpdater is a PSO updater that uses (essentially) standard update
+// equations (momentum-based), a fixed topology and number of particles, and a
+// single-objective static fitness function.
+type StandardUpdater struct {
 	Topology topology.Topology
 	Fitness  fitness.Function
 	Conf     *Config
@@ -101,10 +112,10 @@ type standardUpdater struct {
 // (acceleration, velocity, etc.), and a single-objective static function is
 // being optimized.
 //
-// Note that this has no swarm attached. It has what it needs to create one,
-// but the swarm itself is nil at this stage.
-func NewStandardPSO(t topology.Topology, f fitness.Function, c *Config) Updater {
-	updater := &standardUpdater{
+// Note that this begins life without a swarm. The swarm springs into existence
+// on the first call to Update.
+func NewStandardPSO(t topology.Topology, f fitness.Function, c *Config) *StandardUpdater {
+	updater := &StandardUpdater{
 		Topology:       t,
 		Fitness:        f,
 		Conf:           c,
@@ -123,17 +134,17 @@ func NewStandardPSO(t topology.Topology, f fitness.Function, c *Config) Updater 
 
 // Initialized returns true if the swarm has reached t0 and the initial states
 // have been evaluated for fitness.
-func (u *standardUpdater) Initialized() bool {
+func (u *StandardUpdater) Initialized() bool {
 	return u.initialized
 }
 
 // Swarm returns a list of particles.
-func (u *standardUpdater) Swarm() []*particle.Particle {
+func (u *StandardUpdater) Swarm() []*particle.Particle {
 	return u.swarm
 }
 
 // BestParticle returns the particle with the fittest BestVal.
-func (u *standardUpdater) BestParticle() *particle.Particle {
+func (u *StandardUpdater) BestParticle() *particle.Particle {
 	best := u.swarm[0]
 	for _, p := range u.swarm[1:] {
 		if u.Fitness.LessFit(best.BestVal, p.BestVal) {
@@ -144,13 +155,13 @@ func (u *standardUpdater) BestParticle() *particle.Particle {
 }
 
 // Batches returns the number of improved batches and the total batches.
-func (u *standardUpdater) Batches() (improved, total int) {
+func (u *StandardUpdater) Batches() (improved, total int) {
 	return u.totalImproved, u.totalBatches
 }
 
 // init creates all of the particles in the swarm and evaluates the fitness function
 // for all of them. Returns the number of function evaluations needed.
-func (u *standardUpdater) init() int {
+func (u *StandardUpdater) init() int {
 	u.swarm = make([]*particle.Particle, u.Topology.Size())
 
 	// Evaluate the function concurrently.
@@ -175,7 +186,7 @@ func (u *standardUpdater) init() int {
 // Update moves the swarm from one time slice to another. The first call moves
 // the swarm to t[0] by initializing it. After that it ticks the clock with each call.
 // Returns the number of function evaluations performed.
-func (u *standardUpdater) Update() int {
+func (u *StandardUpdater) Update() int {
 	bestUpdated := false
 	defer func() {
 		u.Topology.Tick()
@@ -235,15 +246,15 @@ func (u *standardUpdater) Update() int {
 	return num_evaluations
 }
 
-func (u *standardUpdater) momentum(particle *particle.Particle, dot float64) float64 {
+func (u *StandardUpdater) momentum(particle *particle.Particle, dot float64) float64 {
 	return u.Conf.Momentum(u, u.totalEvals, particle.Id) * u.Conf.Tug(dot)
 }
 
-func (u *standardUpdater) topoLessFit(a, b int) bool {
+func (u *StandardUpdater) topoLessFit(a, b int) bool {
 	return u.Fitness.LessFit(u.swarm[a].BestVal, u.swarm[b].BestVal)
 }
 
-func (u *standardUpdater) moveOneParticle(pidx int) {
+func (u *StandardUpdater) moveOneParticle(pidx int) {
 	adapt := u.Conf.DecayAdapt
 	soc := u.Conf.SocConst
 	cog := u.Conf.CogConst
@@ -293,7 +304,7 @@ func (u *standardUpdater) moveOneParticle(pidx int) {
 	scratch.Bounced = false
 }
 
-func (u *standardUpdater) bounceAll() {
+func (u *StandardUpdater) bounceAll() {
 	radius := u.Conf.RadiusMultiplier * u.domainDiameter
 	bounce_factor := u.Conf.DecayRadius
 
@@ -333,7 +344,7 @@ func (u *standardUpdater) bounceAll() {
 	}
 }
 
-func (u *standardUpdater) doBounce(particle *particle.Particle, springiness float64) {
+func (u *StandardUpdater) doBounce(particle *particle.Particle, springiness float64) {
 	bounceBy := springiness * u.Conf.BounceMultiplier
 	particle.Scratch().Vel.Negate()
 	particle.Scratch().Pos.SMulBy(bounceBy).Negate().AddBy(particle.Pos.SMul(1 + bounceBy))
