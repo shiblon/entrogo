@@ -1,3 +1,4 @@
+// Package fitness contains standard PSO-evaluation fitness functions from literature.
 package fitness
 
 import (
@@ -8,6 +9,8 @@ import (
 	"github.com/shiblon/entrogo/vec"
 )
 
+// Function is an interface that can represent any kind of constant-dimension fitness function
+// with a concept of random domain sampling.
 type Function interface {
 	// The main entry point for asking a fitness function questions.
 	Query(vec.Vec) float64
@@ -53,22 +56,22 @@ func UniformHyperrectSample(min, max vec.Vec, rgen *rand.Rand) (v vec.Vec) {
 	return v
 }
 
-type basicQueryFunc func(fit *basicFitness, pos vec.Vec) float64
+type QueryFunc func(fit *Fitness, pos vec.Vec) float64
 
-type basicFitness struct {
+type Fitness struct {
 	dims           int
 	offsetBy       float64
 	minCorner      vec.Vec
 	maxCorner      vec.Vec
 	sideLengths    vec.Vec
 	negSideLengths vec.Vec
-	q              basicQueryFunc
+	q              QueryFunc
 
 	Center vec.Vec
 }
 
-func newBasicFitness(dims int, minCorner, maxCorner vec.Vec, offsetBy float64, q basicQueryFunc) *basicFitness {
-	f := &basicFitness{
+func NewFitness(dims int, minCorner, maxCorner vec.Vec, offsetBy float64, q QueryFunc) *Fitness {
+	f := &Fitness{
 		dims:        dims,
 		minCorner:   minCorner,
 		maxCorner:   maxCorner,
@@ -81,44 +84,44 @@ func newBasicFitness(dims int, minCorner, maxCorner vec.Vec, offsetBy float64, q
 	return f
 }
 
-func newBasicFitnessSquareDomain(dims int, minDim, maxDim, offsetBy float64, q basicQueryFunc) *basicFitness {
-	return newBasicFitness(dims, vec.NewFilled(dims, minDim), vec.NewFilled(dims, maxDim), offsetBy, q)
+func newFitnessSquareDomain(dims int, minDim, maxDim, offsetBy float64, q QueryFunc) *Fitness {
+	return newFitness(dims, vec.NewFilled(dims, minDim), vec.NewFilled(dims, maxDim), offsetBy, q)
 }
 
-func (f *basicFitness) LessFit(a, b float64) bool {
+func (f *Fitness) LessFit(a, b float64) bool {
 	return b < a
 }
 
-func (f *basicFitness) Dims() int {
+func (f *Fitness) Dims() int {
 	return f.dims
 }
 
-func (f *basicFitness) VecInterpreter(v vec.Vec) string {
+func (f *Fitness) VecInterpreter(v vec.Vec) string {
 	return fmt.Sprintf("%f", []float64(v))
 }
 
-func (f *basicFitness) RandomPos(rgen *rand.Rand) vec.Vec {
+func (f *Fitness) RandomPos(rgen *rand.Rand) vec.Vec {
 	return UniformHyperrectSample(f.minCorner, f.maxCorner, rgen).Sub(f.Center)
 }
 
-func (f *basicFitness) RandomVel(rgen *rand.Rand) vec.Vec {
+func (f *Fitness) RandomVel(rgen *rand.Rand) vec.Vec {
 	return UniformHyperrectSample(f.negSideLengths, f.sideLengths, rgen)
 }
 
-func (f *basicFitness) Diameter() float64 {
+func (f *Fitness) Diameter() float64 {
 	return f.maxCorner.Sub(f.minCorner).Mag()
 }
 
-func (f *basicFitness) SideLengths() vec.Vec {
+func (f *Fitness) SideLengths() vec.Vec {
 	return f.sideLengths
 }
 
-func (f *basicFitness) Query(pos vec.Vec) float64 {
+func (f *Fitness) Query(pos vec.Vec) float64 {
 	return f.q(f, pos)
 }
 
-func NewParabola(dims int, offset float64) *basicFitness {
-	return newBasicFitnessSquareDomain(dims, -50.0, 50.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
+func NewParabola(dims int, offset float64) *Fitness {
+	return newFitnessSquareDomain(dims, -50.0, 50.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s := 0.0
 		for i := range pos {
 			p := pos[i] - f.Center[i]
@@ -128,8 +131,8 @@ func NewParabola(dims int, offset float64) *basicFitness {
 	})
 }
 
-func NewRastrigin(dims int, offset float64) *basicFitness {
-	return newBasicFitnessSquareDomain(dims, -5.12, 5.12, offset, func(f *basicFitness, pos vec.Vec) float64 {
+func NewRastrigin(dims int, offset float64) *Fitness {
+	return newFitnessSquareDomain(dims, -5.12, 5.12, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s := 10.0 * float64(f.dims)
 		for i := range pos {
 			p := pos[i] - f.Center[i]
@@ -139,8 +142,8 @@ func NewRastrigin(dims int, offset float64) *basicFitness {
 	})
 }
 
-func NewRosenbrock(dims int, offset float64) *basicFitness {
-	return newBasicFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
+func NewRosenbrock(dims int, offset float64) *Fitness {
+	return newFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s := 0.0
 		for i := 0; i < len(pos)-1; i++ {
 			p := pos[i] - f.Center[i]
@@ -153,10 +156,10 @@ func NewRosenbrock(dims int, offset float64) *basicFitness {
 	})
 }
 
-func NewAckley(dims int, offset float64) *basicFitness {
+func NewAckley(dims int, offset float64) *Fitness {
 	twopi := 2.0 * math.Pi
 	D := float64(dims)
-	return newBasicFitnessSquareDomain(dims, -5.0, 5.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
+	return newFitnessSquareDomain(dims, -5.0, 5.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s1, s2 := 0.0, 0.0
 		for i, p := range pos {
 			p -= f.Center[i]
@@ -169,8 +172,8 @@ func NewAckley(dims int, offset float64) *basicFitness {
 	})
 }
 
-func NewDeJongF4(dims int, offset float64) *basicFitness {
-	return newBasicFitnessSquareDomain(dims, -20.0, 20.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
+func NewDeJongF4(dims int, offset float64) *Fitness {
+	return newFitnessSquareDomain(dims, -20.0, 20.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s := 0.0
 		for i, x := range pos {
 			s += float64(i+1) * math.Pow(x-f.Center[i], 4)
@@ -179,8 +182,8 @@ func NewDeJongF4(dims int, offset float64) *basicFitness {
 	})
 }
 
-func NewEasom(dims int, offset float64) *basicFitness {
-	return newBasicFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
+func NewEasom(dims int, offset float64) *Fitness {
+	return newFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		sum := 0.0
 		prod := 1.0
 		for i, x := range pos {
@@ -192,8 +195,8 @@ func NewEasom(dims int, offset float64) *basicFitness {
 	})
 }
 
-func NewSchwefel(dims int, offset float64) *basicFitness {
-	return newBasicFitnessSquareDomain(dims, -500.0, 500.0, offset, func(f *basicFitness, pos vec.Vec) float64 {
+func NewSchwefel(dims int, offset float64) *Fitness {
+	return newFitnessSquareDomain(dims, -500.0, 500.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		sum := 0.0
 		for i, x := range pos {
 			p := x - f.Center[i]
