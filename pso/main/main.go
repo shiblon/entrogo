@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"regexp"
@@ -112,9 +113,13 @@ func main() {
 	case "star":
 		topo = topology.NewStar(parseInt(topoargs[0]))
 	case "expander":
-		topo = topology.NewRandomExpander(rand.NewSource(rand.Int63()), parseInt(topoargs[0]), parseInt(topoargs[1]))
+		var err error
+		topo, err = topology.NewRandomExpander(rand.NewSource(rand.Int63()), parseInt(topoargs[0]), parseInt(topoargs[1]))
+		if err != nil {
+			log.Fatalf("Failed to create random expander topology: %v", err)
+		}
 	default:
-		panic(fmt.Sprintf("Unknown topology name '%v' in flag '%v'.", toponame, *topoFlag))
+		log.Fatalf("Unknown topology name '%v' in flag '%v'.", toponame, *topoFlag)
 	}
 
 	outputevery := *outFreqFlag

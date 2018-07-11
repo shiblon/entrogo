@@ -1,24 +1,22 @@
+// Package topology contains definitions of PSO topology that allow for best
+// neighbor querying. Topologies can be static or dynamic. Common static
+// topologies are provided.
 package topology
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 )
 
-type Comp func(a, b int) bool
+// LessFit is a fitness comparator function that operates on particle indices.
+// Indicates whether the particle at index a is less fit than the particle at
+// index b.
+type LessFit func(a, b int) bool
 
-var private_lock *sync.Mutex = new(sync.Mutex)
-
-func un(l *sync.Mutex) {
-	l.Unlock()
-}
-
-func lock() *sync.Mutex {
-	private_lock.Lock()
-	return private_lock
-}
-
+// Topology defines methods for getting size, moving the topology forward, and
+// getting the best neighbor's index given a fitness comparator.
 type Topology interface {
 	// Size returns the number of particles in this topology.
 	Size() int
@@ -31,12 +29,14 @@ type Topology interface {
 	Tick()
 
 	// BestNeighbor returns the index of the best neighbor, given a suitable lessFit function.
-	BestNeighbor(i int, lessFit Comp) int
+	BestNeighbor(i int, lessFit LessFit) int
 }
 
 // Star graph.
 type Star struct {
 	num int
+
+	mu sync.Mutex
 
 	ready    bool // True if we have computed best and second best since the last tick
 	best     int  // last best index swarm-wide
@@ -44,22 +44,28 @@ type Star struct {
 	numCalls int  // number of times we've tried to find a neighbor since the last tick
 }
 
+// NewStar creates a star topology.
 func NewStar(numParticles int) *Star {
 	return &Star{num: numParticles}
 }
 
+// Size returns the number of particles in the swarm.
 func (t *Star) Size() int {
 	return t.num
 }
 
+// Tick does nothing, since Ring is a static topology.
 func (t *Star) Tick() {
-	defer un(lock())
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.ready = false
 	t.numCalls = 0
 }
 
-func (t *Star) BestNeighbor(i int, lessFit Comp) int {
-	defer un(lock()) // mutable because of how it maintains state
+// BestNeighbor returns the most fit particle in the neighborhood of the particle at index i.
+func (t *Star) BestNeighbor(i int, lessFit LessFit) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.numCalls++
 	if !t.ready {
 		t.best = 0
@@ -76,7 +82,7 @@ func (t *Star) BestNeighbor(i int, lessFit Comp) int {
 		t.ready = true
 	}
 	if t.numCalls > 4*t.num {
-		fmt.Printf("Suspicious number of calls since last tick: %d. Did you forget to call Tick?\n", t.numCalls)
+		log.Printf("Suspicious number of calls since last tick: %d. Did you forget to call Tick?\n", t.numCalls)
 	}
 	// All computed, now we can just return them based on which particle this is.
 	if i == t.best {
@@ -91,18 +97,22 @@ type Ring struct {
 	num int
 }
 
+// NewRing creates a double-linked ring topology.
 func NewRing(numParticles int) *Ring {
 	return &Ring{numParticles}
 }
 
+// Tick does nothing, since Ring is a static topology.
 func (t *Ring) Tick() {
 }
 
+// Size returns the number of particles in the swarm.
 func (t *Ring) Size() int {
 	return t.num
 }
 
-func (t *Ring) BestNeighbor(i int, lessFit Comp) int {
+// BestNeighbor returns the most fit particle in the neighborhood of the particle at index i.
+func (t *Ring) BestNeighbor(i int, lessFit LessFit) int {
 	best := (i + 1) % t.num
 	if t.num >= 3 {
 		lower := (t.num + i - 1) % t.num
@@ -113,6 +123,8 @@ func (t *Ring) BestNeighbor(i int, lessFit Comp) int {
 	return best
 }
 
+// RandomExpander changes the connections between particles randomly every time
+// it's asked for a best neighbor..
 type RandomExpander struct {
 	num    int
 	degree int
@@ -121,12 +133,12 @@ type RandomExpander struct {
 	rand chan int
 }
 
-// NewRandomExpander creates a new random expander graph.
-func NewRandomExpander(rsrc rand.Source, numParticles, degree int) *RandomExpander {
+// NewRandomExpander creates a new random expander graph. The degree must be less than the number of particles and greater than zero.
+func NewRandomExpander(rsrc rand.Source, numParticles, degree int) (*RandomExpander, error) {
 	if degree >= numParticles {
-		panic(fmt.Sprintf("Number of RandomExpander out-bound edges (%d) >= particles (%d):", degree, numParticles))
+		return nil, fmt.Errorf("Number of RandomExpander out-bound edges (%d) >= particles (%d):", degree, numParticles)
 	} else if degree <= 0 {
-		panic(fmt.Sprintf("RandomExpander out-bound edges <= 0: %d", degree))
+		return nil, fmt.Errorf("RandomExpander out-bound edges <= 0: %d", degree)
 	}
 
 	// Create the random channel and start populating it.
@@ -145,9 +157,11 @@ func NewRandomExpander(rsrc rand.Source, numParticles, degree int) *RandomExpand
 	}
 }
 
+// Tick does nothing, since Ring is a static topology.
 func (t *RandomExpander) Tick() {
 }
 
+// Size returns the number of particles in the swarm.
 func (t *RandomExpander) Size() int {
 	return t.num
 }
@@ -160,7 +174,8 @@ func (t *RandomExpander) randIndex(self int) int {
 	return v
 }
 
-func (t *RandomExpander) BestNeighbor(p int, lessFit Comp) int {
+// BestNeighbor returns the most fit particle in the neighborhood of the particle at index i.
+func (t *RandomExpander) BestNeighbor(p int, lessFit LessFit) int {
 	best := t.randIndex(p)
 	for i := 1; i < t.degree; i++ {
 		n := t.randIndex(p)
