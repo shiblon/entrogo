@@ -84,8 +84,8 @@ func NewFitness(dims int, minCorner, maxCorner vec.Vec, offsetBy float64, q Quer
 	return f
 }
 
-func newFitnessSquareDomain(dims int, minDim, maxDim, offsetBy float64, q QueryFunc) *Fitness {
-	return newFitness(dims, vec.NewFilled(dims, minDim), vec.NewFilled(dims, maxDim), offsetBy, q)
+func NewFitnessSquareDomain(dims int, minDim, maxDim, offsetBy float64, q QueryFunc) *Fitness {
+	return NewFitness(dims, vec.NewFilled(dims, minDim), vec.NewFilled(dims, maxDim), offsetBy, q)
 }
 
 func (f *Fitness) LessFit(a, b float64) bool {
@@ -121,7 +121,7 @@ func (f *Fitness) Query(pos vec.Vec) float64 {
 }
 
 func NewParabola(dims int, offset float64) *Fitness {
-	return newFitnessSquareDomain(dims, -50.0, 50.0, offset, func(f *Fitness, pos vec.Vec) float64 {
+	return NewFitnessSquareDomain(dims, -50.0, 50.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s := 0.0
 		for i := range pos {
 			p := pos[i] - f.Center[i]
@@ -132,7 +132,7 @@ func NewParabola(dims int, offset float64) *Fitness {
 }
 
 func NewRastrigin(dims int, offset float64) *Fitness {
-	return newFitnessSquareDomain(dims, -5.12, 5.12, offset, func(f *Fitness, pos vec.Vec) float64 {
+	return NewFitnessSquareDomain(dims, -5.12, 5.12, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s := 10.0 * float64(f.dims)
 		for i := range pos {
 			p := pos[i] - f.Center[i]
@@ -143,7 +143,7 @@ func NewRastrigin(dims int, offset float64) *Fitness {
 }
 
 func NewRosenbrock(dims int, offset float64) *Fitness {
-	return newFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *Fitness, pos vec.Vec) float64 {
+	return NewFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s := 0.0
 		for i := 0; i < len(pos)-1; i++ {
 			p := pos[i] - f.Center[i]
@@ -159,7 +159,7 @@ func NewRosenbrock(dims int, offset float64) *Fitness {
 func NewAckley(dims int, offset float64) *Fitness {
 	twopi := 2.0 * math.Pi
 	D := float64(dims)
-	return newFitnessSquareDomain(dims, -5.0, 5.0, offset, func(f *Fitness, pos vec.Vec) float64 {
+	return NewFitnessSquareDomain(dims, -5.0, 5.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s1, s2 := 0.0, 0.0
 		for i, p := range pos {
 			p -= f.Center[i]
@@ -173,7 +173,7 @@ func NewAckley(dims int, offset float64) *Fitness {
 }
 
 func NewDeJongF4(dims int, offset float64) *Fitness {
-	return newFitnessSquareDomain(dims, -20.0, 20.0, offset, func(f *Fitness, pos vec.Vec) float64 {
+	return NewFitnessSquareDomain(dims, -20.0, 20.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		s := 0.0
 		for i, x := range pos {
 			s += float64(i+1) * math.Pow(x-f.Center[i], 4)
@@ -183,7 +183,7 @@ func NewDeJongF4(dims int, offset float64) *Fitness {
 }
 
 func NewEasom(dims int, offset float64) *Fitness {
-	return newFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *Fitness, pos vec.Vec) float64 {
+	return NewFitnessSquareDomain(dims, -100.0, 100.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		sum := 0.0
 		prod := 1.0
 		for i, x := range pos {
@@ -196,7 +196,7 @@ func NewEasom(dims int, offset float64) *Fitness {
 }
 
 func NewSchwefel(dims int, offset float64) *Fitness {
-	return newFitnessSquareDomain(dims, -500.0, 500.0, offset, func(f *Fitness, pos vec.Vec) float64 {
+	return NewFitnessSquareDomain(dims, -500.0, 500.0, offset, func(f *Fitness, pos vec.Vec) float64 {
 		sum := 0.0
 		for i, x := range pos {
 			p := x - f.Center[i]
