@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"sort"
 
 	"github.com/shiblon/entrogo/fitness"
 	"github.com/shiblon/entrogo/pso/particle"
@@ -35,6 +36,7 @@ type Config struct {
 	CogConst         float64            // initial cognitive constant.
 	SocLower         float64            // lower bound for social constant.
 	CogLower         float64            // lower bound for cognitive constant.
+	BackwardAdapt    bool               // allow adaptation of negative lower bounds based on whole-swarm surprises.
 	VelCapMultiplier float64            // maximum velocity to allow as a function of the function's domain diagonal.
 	RadiusMultiplier float64            // how much to decay the radius when bouncing.
 	BounceMultiplier float64            // how much further to bounce out than usual.
@@ -262,33 +264,67 @@ func (u *StandardUpdater) moveOneParticle(pidx int) {
 	cogLower := u.Conf.CogLower
 	maxvel_fraction := u.Conf.VelCapMultiplier
 
-	particle := u.swarm[pidx]
+	p := u.swarm[pidx]
 
 	informer := u.swarm[u.Topology.BestNeighbor(pidx, u.topoLessFit)]
-	dims := len(particle.Pos)
+	dims := len(p.Pos)
 
 	if adapt != 1.0 {
 		socFactor := math.Pow(adapt, float64(informer.T-informer.BestT))
-		cogFactor := math.Pow(adapt, float64(particle.T-particle.BestT))
+		cogFactor := math.Pow(adapt, float64(p.T-p.BestT))
 		soc *= socFactor
 		socLower *= socFactor
 		cog *= cogFactor
 		cogLower *= cogFactor
 	}
 
-	rand_soc := vec.NewFFilled(dims, particle.Rand().Float64).SMulBy(soc - socLower).SAddBy(socLower)
-	rand_cog := vec.NewFFilled(dims, particle.Rand().Float64).SMulBy(cog - cogLower).SAddBy(cogLower)
+	if u.Conf.BackwardAdapt {
+		var particles []*particle.Particle
+		for i := 0; i < len(u.swarm); i++ {
+			particles = append(particles, u.swarm[i])
+		}
+		// Sort by descending fitness.
+		sort.Slice(particles, func(a, b int) bool {
+			return u.Fitness.LessFit(particles[b].BestVal, particles[a].BestVal)
+		})
+		// Best is now on top. Compute distances and look for surprises (descending distance).
+		numDescents := 0
+		best := particles[0]
+		curr := 0.0
+		for _, p := range particles {
+			dist := p.BestPos.Sub(best.BestPos).Norm(2)
+			if dist < curr {
+				numDescents++
+			}
+			curr = dist
+		}
+		// Surprises / (P-2) gives the estimated amount of non-convexity:
+		nonConvexity := float64(numDescents) / float64(len(u.swarm)-2)
 
-	to_informer := informer.BestPos.Sub(particle.Pos).MulBy(rand_soc)
-	acc := particle.BestPos.Sub(particle.Pos).MulBy(rand_cog).AddBy(to_informer)
+		// TODO: determine whether to *also* slide the top down
+
+		// We can use our non-convexity estimate to see how negative we should go with cognition.
+		if socLower < 0 {
+			socLower *= nonConvexity
+		}
+		if cogLower < 0 {
+			cogLower *= nonConvexity
+		}
+	}
+
+	rand_soc := vec.NewFFilled(dims, p.Rand().Float64).SMulBy(soc - socLower).SAddBy(socLower)
+	rand_cog := vec.NewFFilled(dims, p.Rand().Float64).SMulBy(cog - cogLower).SAddBy(cogLower)
+
+	to_informer := informer.BestPos.Sub(p.Pos).MulBy(rand_soc)
+	acc := p.BestPos.Sub(p.Pos).MulBy(rand_cog).AddBy(to_informer)
 
 	// Cap the velocity if necessary.
-	scratch := particle.Scratch()
+	scratch := p.Scratch()
 
-	dot := particle.Vel.Normalized().Dot(acc.Normalized())
+	dot := p.Vel.Normalized().Dot(acc.Normalized())
 	// u.printChan <- fmt.Sprintf("tug=%v", dot)
 
-	scratch.Vel.Replace(particle.Vel).SMulBy(u.momentum(particle, dot)).AddBy(acc)
+	scratch.Vel.Replace(p.Vel).SMulBy(u.momentum(p, dot)).AddBy(acc)
 
 	sl := u.Fitness.SideLengths()
 	for i, v := range scratch.Vel {
@@ -300,7 +336,7 @@ func (u *StandardUpdater) moveOneParticle(pidx int) {
 		}
 	}
 
-	scratch.Pos.Replace(particle.Pos).AddBy(scratch.Vel)
+	scratch.Pos.Replace(p.Pos).AddBy(scratch.Vel)
 	scratch.Bounced = false
 }
 

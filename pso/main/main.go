@@ -46,6 +46,8 @@ var (
 	cogConstFlag         = flag.Float64("cc", 2.05, "Cognitive constant")
 	socLowerFlag         = flag.Float64("sclb", 0.0, "Social constant lower bound.")
 	cogLowerFlag         = flag.Float64("cclb", 0.0, "Cognitive constant lower bound.")
+
+	backwardAdaptFlag = flag.Bool("bcog", false, "Adapt backward cognition based on non-convexity estimate.")
 )
 
 var sflagre = regexp.MustCompile(`^\s*(\w+)(?::(.*))?\s*$`)
@@ -136,6 +138,7 @@ func main() {
 	config.CogConst = *cogConstFlag
 	config.SocLower = *socLowerFlag
 	config.CogLower = *cogLowerFlag
+	config.BackwardAdapt = *backwardAdaptFlag
 
 	switch *tugTypeFlag {
 	case "none":

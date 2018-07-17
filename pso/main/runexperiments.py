@@ -21,17 +21,21 @@ def gen_experiments():
             "ackley:30:0.25",
            ],
     "mdecay": 1.0,
-    ("mtype", "ttype", "m0", "m1", "sc", "cc", "sclb", "cclb"): [
-      ("linear", "none", "0.8", "0.5", "2.05", "2.05", "0.0", "0.0"),
-      ("linear", "rtrunc", "0.8", "0.5", "2.05", "2.05", "0.0", "0.0"),
-      ("constant", "none", "0.72984", "0.72984", "1.5", "1.5", "0.0", "0.0"), # equivalent to standard constriction
-      ("constant", "rtrunc", "0.72984", "0.72984", "1.5", "1.5", "0.0", "0.0"), # equivalent to standard constriction
-      ("constant", "none", "0.0", "0.0", "1.5", "1.5", "0.0", "0.0"),
-      ("constant", "none", "0.0", "0.0", "2.05", "2.05", "0.0", "0.0"),
-      ("constant", "none", "0.0", "0.0", "1.5", "1.5", "-0.1", "-0.1"),
-      ("constant", "none", "0.0", "0.0", "2.05", "2.05", "-0.1", "-0.1"),
-      ("constant", "none", "0.0", "0.0", "1.5", "1.5", "-0.15", "-0.15"),
-      ("constant", "none", "0.0", "0.0", "2.05", "2.05", "-0.15", "-0.15"),
+    ("mtype", "ttype", "m0", "m1", "sc", "cc", "sclb", "cclb", "bcog"): [
+      ("linear", "none", "0.8", "0.5", "2.05", "2.05", "0.0", "0.0", None),
+      ("linear", "rtrunc", "0.8", "0.5", "2.05", "2.05", "0.0", "0.0", None),
+
+      ("linear", "none", "0", "0", "2.05", "2.05", "-1", "-1", None),
+      ("linear", "none", "0", "0", "2.05", "2.05", "-1", "-1", True),
+
+      ("constant", "none", "0.72984", "0.72984", "1.5", "1.5", "0.0", "0.0", None), # equivalent to standard constriction
+      ("constant", "rtrunc", "0.72984", "0.72984", "1.5", "1.5", "0.0", "0.0", None), # equivalent to standard constriction
+      ("constant", "none", "0.0", "0.0", "1.5", "1.5", "0.0", "0.0", None),
+      ("constant", "none", "0.0", "0.0", "2.05", "2.05", "0.0", "0.0", None),
+      ("constant", "none", "0.0", "0.0", "1.5", "1.5", "-0.1", "-0.1", None),
+      ("constant", "none", "0.0", "0.0", "2.05", "2.05", "-0.1", "-0.1", None),
+      ("constant", "none", "0.0", "0.0", "1.5", "1.5", "-0.15", "-0.15", None),
+      ("constant", "none", "0.0", "0.0", "2.05", "2.05", "-0.15", "-0.15", None),
     ],
     "rmul": ["0.0",
              "0.1"],
@@ -62,7 +66,15 @@ def gen_experiments():
       if len(flags) != len(values):
         raise ValueError("Invalid experiment setting: %r:%r" % flags, values)
       for flag, setting in zip(flags, values):
-        yield "-%s=%s" % (flag, setting)
+        if setting is None: # fall back to default value, skip flag in this case.
+          continue
+        if isinstance(setting, bool):
+          if setting:
+            yield "-%s" % flag
+          else:
+            yield "-no%s" % flag
+        else:
+          yield "-%s=%s" % (flag, setting)
 
   for indices in combos:
     yield sorted(iterflags(indices))
@@ -138,6 +150,7 @@ def run(progname, flags, outname):
 def main():
   parser = argparse.ArgumentParser(description="Run experiments.")
   parser.add_argument('-n', '--dry', action="store_true", help="Show changes without running.")
+  parser.add_argument('-r', '--runner', type=str, help="Location of the binary to run.")
   args = parser.parse_args()
 
   to_run = []
@@ -173,8 +186,9 @@ def main():
 
   avg_duration = None
 
+  progname = os.path.expanduser(args.runner or "./main")
+
   for i, (state, flags, out) in enumerate(to_run):
-    progname = "./main" # os.path.join(os.getcwd(), "main")
     print("RUNNING {iter:d}/{total:d} (state={state}) {out}: {prog} {flags}".format(state=state, flags=" ".join(flags), out=out, prog=progname, iter=i+1, total=len(to_run)))
     start_time = time.time()
     if not run(progname, flags, out):
