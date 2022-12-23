@@ -47,6 +47,58 @@ func TestNursery_Basic(t *testing.T) {
 }
 
 func TestNursery_MultiProducerMultiConsumer(t *testing.T) {
+	// This test shows how to easily and safely build a multi-producer,
+	// multi-consumer pattern over a single channel, a case that comes up quite
+	// often in practice, and one that has good recipes, but so far they are
+	// all pretty awkward.
+	//
+	// The best recipe I have found over the years looks like the following
+	// code comment, and the code in this test that uses nurseries is actually
+	// easier to reason about.
+	//
+	// Note that it takes two explicit groups, error management is kind of
+	// weird, and there's that long raw `go` statement in there set up to
+	// signal that producers are done by closing the channel, necessitating
+	// that `Wait` becalled twice: once inside a goroutine, and once outside
+	// just to get the error.
+	//
+	//   ch := make(chan string)
+	//   gProducer, ctxProducer := errgroup.WithContext(context.Background())
+	//   gConsumer, ctxConsumer := errgroup.WithContext(context.Background())
+	//
+	//   for i := 0; i < numProducers; i++ {
+	//     i := i
+	//     gProducer.Go(func() error {
+	//       for j := 0; j < valuesPerProducer; j++ {
+	//         ch <- fmt.Sprintf("Producer %d: %d", i, j)
+	//       }
+	//       return nil
+	//     })
+	//   }
+	//
+	//   for i := 0; i < numConsumers; i++ {
+	//     i := i
+	//     gConsumer.Go(func() error {
+	//       for val := range ch {
+	//         log.Printf(v)
+	//       }
+	//       return nil
+	//     })
+	//   }
+	//
+	//   go func() {
+	//     gProducer.Wait()
+	//     close(ch)
+	//   }()
+	//
+	//   if err := gProducer.Wait(); err != nil {
+	//     log.Fatalf("Error in producers: %v", err)
+	//   }
+	//
+	//   if err := gConsumer.Wait(); err != nil {
+	//     log.Fatalf("Error in consumers: %v", err)
+	//   }
+	//
 	ctx := context.Background()
 
 	ch := make(chan string)
