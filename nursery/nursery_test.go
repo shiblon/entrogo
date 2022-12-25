@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestNursery_Basic(t *testing.T) {
@@ -46,81 +47,99 @@ func TestNursery_Basic(t *testing.T) {
 	}
 }
 
+// ExampleMultiProducerMultiConsumerUsingErrGroup shows how to use errgroup to
+// safely create multiple producers and consumers in a way that you are
+// guaranteed that they all finish before exiting the function, and they can be
+// canceled from the caller using a context. This pattern is very close to the
+// nursery idea, but the nursery idea makes some of this implicit by allowing
+// channels to close in a normal defer statement and making the Wait part of
+// the structure itself. The raw errgroup idea feels more like Go because of
+// flow and indentation, though the use of several contexts in one function is
+// a bit strange. It feels like the scope is getting crowded.
+func ExampleMultiProducerMultiConsumerUsingErrGroup() {
+	const numConsumers = 10
+	const numProducers = 20
+	const valuesPerProducer = 10
+
+	ch := make(chan string)
+
+	// Set up consumers. These exit when the channel is closed.
+	gConsumer := new(errgroup.Group) // no context needed, these close when the channel does.
+	for i := 0; i < numConsumers; i++ {
+		i := i
+		gConsumer.Go(func() error {
+			for val := range ch {
+				log.Printf("Consumer %d received: %s", i, val)
+			}
+			return nil
+		})
+	}
+
+	// Set up a group of producers. Note that this is not complete without the
+	// bare goroutine below, which waits for it and then closes the channel to
+	// signal consumers that no more data is coming.
+	gProducer, ctxProducer := errgroup.WithContext(context.Background())
+	for i := 0; i < numProducers; i++ {
+		i := i
+		gProducer.Go(func() error {
+			for j := 0; j < valuesPerProducer; j++ {
+				select {
+				case ch <- fmt.Sprintf("Producer %d: %d", i, j):
+				case <-ctxProducer.Done():
+					return fmt.Errorf("Producer %d: %w", i, ctxProducer.Err())
+				}
+			}
+			return nil
+		})
+	}
+
+	// This awkward little dance is to close the channel when the producers are
+	// finished so that the consumers will see a finished channel and exit, as
+	// well. Canceling the context can force this to happen early, or, given
+	// errgroup semantics, any producer or consumer returning an error will
+	// trigger this.
+	err := gProducer.Wait()
+	close(ch)
+	if err != nil {
+		log.Fatalf("Error in producers: %v", err)
+	}
+
+	if err := gConsumer.Wait(); err != nil {
+		log.Fatalf("Error in consumers: %v", err)
+	}
+}
+
 func TestNursery_MultiProducerMultiConsumer(t *testing.T) {
 	// This test shows how to easily and safely build a multi-producer,
 	// multi-consumer pattern over a single channel, a case that comes up quite
-	// often in practice, and one that has good recipes, but so far they are
-	// all pretty awkward.
-	//
-	// The best recipe I have found over the years looks like the following
-	// code comment, and the code in this test that uses nurseries is actually
-	// easier to reason about.
-	//
-	// Note that it takes two explicit groups, error management is kind of
-	// weird, and there's that long raw `go` statement in there set up to
-	// signal that producers are done by closing the channel, necessitating
-	// that `Wait` becalled twice: once inside a goroutine, and once outside
-	// just to get the error.
-	//
-	//   ch := make(chan string)
-	//   gProducer, ctxProducer := errgroup.WithContext(context.Background())
-	//   gConsumer, ctxConsumer := errgroup.WithContext(context.Background())
-	//
-	//   for i := 0; i < numProducers; i++ {
-	//     i := i
-	//     gProducer.Go(func() error {
-	//       for j := 0; j < valuesPerProducer; j++ {
-	//         ch <- fmt.Sprintf("Producer %d: %d", i, j)
-	//       }
-	//       return nil
-	//     })
-	//   }
-	//
-	//   for i := 0; i < numConsumers; i++ {
-	//     i := i
-	//     gConsumer.Go(func() error {
-	//       for val := range ch {
-	//         log.Printf(v)
-	//       }
-	//       return nil
-	//     })
-	//   }
-	//
-	//   go func() {
-	//     gProducer.Wait()
-	//     close(ch)
-	//   }()
-	//
-	//   if err := gProducer.Wait(); err != nil {
-	//     log.Fatalf("Error in producers: %v", err)
-	//   }
-	//
-	//   if err := gConsumer.Wait(); err != nil {
-	//     log.Fatalf("Error in consumers: %v", err)
-	//   }
-	//
+	// often in practice, and one that has good recipes (see example).
 	ctx := context.Background()
-
-	ch := make(chan string)
 
 	const numProducers = 20
 	const valuesPerProducer = 50
 	const numConsumers = 10
 
+	// Keep track of number of consumed values, to be updated asynchronously.
 	var m sync.Mutex
 	numConsumed := 0
+
+	ch := make(chan string)
 
 	// Run a nursery with two nurseries inside of it. One for producers, one for consumers.
 	Run(ctx, func(ctx context.Context, n *Nursery) {
 		// Producers
 		n.Go(func() error {
-			defer close(ch) // once producers are all finished.
+			defer close(ch) // once producers are all finished (or canceled).
 			Run(ctx, func(ctx context.Context, n *Nursery) {
 				for i := 0; i < numProducers; i++ {
 					i := i
 					n.Go(func() error {
 						for j := 0; j < valuesPerProducer; j++ {
-							ch <- fmt.Sprintf("Producer %d: %d", i, j)
+							select {
+							case ch <- fmt.Sprintf("Producer %d: %d", i, j):
+							case <-ctx.Done(): // use ctx from what Run passes us in the closure.
+								return fmt.Errorf("Producer %d canceled: %w", i, ctx.Err())
+							}
 						}
 						return nil
 					})
@@ -129,7 +148,8 @@ func TestNursery_MultiProducerMultiConsumer(t *testing.T) {
 			return nil
 		})
 
-		// Consumers
+		// Consumers. Note that these naturally end when producers are done,
+		// even if they are canceled, because the channel will then be closed.
 		n.Go(func() error {
 			Run(ctx, func(ctx context.Context, n *Nursery) {
 				for i := 0; i < numConsumers; i++ {
@@ -153,4 +173,25 @@ func TestNursery_MultiProducerMultiConsumer(t *testing.T) {
 	}
 
 	log.Print("Finished producing and consuming")
+}
+
+func ExampleGoroutinesSpawnOthersInSameNursery() {
+	ctx := context.Background()
+	// It is entirely possible to use this pattern to do advanced things like
+	// having a goroutine spawn another goroutine in the same nursery.
+	Run(ctx, func(ctx context.Context, n *Nursery) {
+		n.Go(func() error {
+			defer log.Print("Parent exiting")
+			log.Print("Parent")
+			n.Go(func() error {
+				log.Print("Dynamically spawned 1")
+				return nil
+			})
+			n.Go(func() error {
+				log.Print("Dynamically spawned 2")
+				return nil
+			})
+			return nil
+		})
+	})
 }
