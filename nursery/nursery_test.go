@@ -21,12 +21,20 @@ func TestNursery_Basic(t *testing.T) {
 	// Run two goroutines in a nursery, each adding one value.
 	Run(ctx, func(ctx context.Context, n *Nursery) {
 		n.Go(func() error {
-			ch <- 1
-			return nil
+			select {
+			case ch <- 1:
+				return nil
+			case <-ctx.Done():
+				return fmt.Errorf("producer 1: %w", ctx.Err())
+			}
 		})
 		n.Go(func() error {
-			ch <- 2
-			return nil
+			select {
+			case ch <- 2:
+				return nil
+			case <-ctx.Done():
+				return fmt.Errorf("producer 2: %w", ctx.Err())
+			}
 		})
 	})
 	// Nursery ran! We can close the channel.
@@ -86,7 +94,7 @@ func ExampleMultiProducerMultiConsumerUsingErrGroup() {
 				select {
 				case ch <- fmt.Sprintf("Producer %d: %d", i, j):
 				case <-ctxProducer.Done():
-					return fmt.Errorf("Producer %d: %w", i, ctxProducer.Err())
+					return fmt.Errorf("producer %d: %w", i, ctxProducer.Err())
 				}
 			}
 			return nil
@@ -138,7 +146,7 @@ func TestNursery_MultiProducerMultiConsumer(t *testing.T) {
 							select {
 							case ch <- fmt.Sprintf("Producer %d: %d", i, j):
 							case <-ctx.Done(): // use ctx from what Run passes us in the closure.
-								return fmt.Errorf("Producer %d canceled: %w", i, ctx.Err())
+								return fmt.Errorf("producer %d: %w", i, ctx.Err())
 							}
 						}
 						return nil
